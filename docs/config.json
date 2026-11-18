@@ -2,8 +2,19 @@
   "citta": { "nome": "Reggio Emilia", "lat": 44.6983, "lon": 10.6312 },
   "widgets": [
     { "tipo": "orologio", "area": "sinistra" },
-    { "tipo": "meteo", "area": "destra" },
     { "tipo": "nota", "area": "sinistra", "titolo": "Promemoria", "testo": "Questa è la tua schermata Casa. Si cambia da config.json." },
-    { "tipo": "previsioni", "area": "basso", "giorni": 6 }
+    { "tipo": "meteo", "area": "destra", "striscia": "giorni", "giorni": 6 },
+    {
+      "tipo": "app", "area": "basso", "titolo": "Le mie app",
+      "app": [
+        { "nome": "YouTube" },
+        { "nome": "Netflix" },
+        { "nome": "Prime Video" },
+        { "nome": "Disney+" },
+        { "nome": "RaiPlay" },
+        { "nome": "Mediaset Infinity" },
+        { "nome": "TizenBrew" }
+      ]
+    }
   ]
 }

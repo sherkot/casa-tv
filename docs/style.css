@@ -124,3 +124,63 @@ html, body {
   font-size: 18px;
   color: rgba(141, 151, 169, 0.6);
 }
+
+/* ---------- Striscia giorni nel meteo ---------- */
+.w-meteo .ora-col .tmin { color: var(--tenue); }
+
+/* ---------- App (navigabili col telecomando) ---------- */
+.w-app .riquadri { display: flex; }
+.w-app .riquadro {
+  width: 214px;
+  height: 150px;
+  margin-right: 28px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 3px solid transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s ease-out, background 0.12s;
+}
+.w-app .riquadro img { max-width: 120px; max-height: 76px; margin-bottom: 10px; }
+.w-app .nome-app { font-size: 26px; text-align: center; padding: 0 12px; line-height: 1.15; }
+.w-app .senza-icona .nome-app { font-size: 32px; font-weight: 500; }
+.w-app .assente { opacity: 0.35; }
+.w-app .riquadro.attivo {
+  transform: scale(1.1);
+  border-color: #ffffff;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* ---------- Avviso in basso ---------- */
+#avviso {
+  position: absolute;
+  left: 50%;
+  bottom: 48px;
+  transform: translateX(-50%);
+  background: rgba(20, 28, 42, 0.95);
+  border: 1px solid var(--bordo);
+  border-radius: 999px;
+  padding: 16px 36px;
+  font-size: 26px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+#avviso.visibile { opacity: 1; }
+
+/* ---------- Pannello elenco app (tasto blu) ---------- */
+#pannello-app {
+  position: absolute;
+  top: 60px; left: 96px; right: 96px; bottom: 60px;
+  background: rgba(11, 15, 23, 0.97);
+  border: 1px solid var(--bordo);
+  border-radius: 28px;
+  padding: 36px 48px;
+  overflow: hidden;
+}
+#pannello-app h2 { font-size: 32px; font-weight: 400; margin: 0 0 20px; }
+#pannello-app .lista { column-count: 3; column-gap: 48px; font-size: 22px; }
+#pannello-app .lista div { margin-bottom: 10px; break-inside: avoid; }
+#pannello-app .lista span { display: block; color: var(--tenue); font-size: 18px; }

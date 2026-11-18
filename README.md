@@ -8,7 +8,7 @@ orologio, meteo di Reggio Emilia, promemoria e previsioni dei prossimi giorni.
 | Parte | Cosa fa | Si modifica? |
 |---|---|---|
 | `package.json` | Manifesto del modulo TizenBrew (`packageType: app`) | Quasi mai |
-| `app/index.html` | Caricatore: apre a tutto schermo la pagina su GitHub Pages e la riapre col tasto rosso | No, solo `REMOTE_BASE` la prima volta |
+| `app/index.html` | Caricatore: scarica da GitHub Pages `avvio.js`, che inserisce nella pagina struttura (`corpo.html`), stile e widget. Così la schermata gira dentro il modulo e può aprire app e ricevere i tasti | No, solo `REMOTE_BASE` la prima volta |
 | `docs/config.json` | Quali widget mostrare, in che area e con che testi | **Sì, qui si cambia la schermata** |
 | `docs/app.js` | Codice dei widget (registro `WIDGET`) | Per aggiungere widget nuovi |
 | `docs/style.css` | Aspetto | Per cambiare colori e dimensioni |
@@ -19,9 +19,16 @@ La TV controlla `docs/version.json` ogni 2 minuti: quando il numero cambia, rica
 ## Widget disponibili
 
 - `orologio`: saluto, ora e data.
-- `meteo`: meteo adesso e prossime ore. Opzioni: `passoOre` (default 2), `quanteOre` (default 6).
+- `meteo`: meteo adesso più una striscia in basso. Con `"striscia": "giorni"` mostra i prossimi giorni (`giorni`, default 5), altrimenti le prossime ore (`passoOre`, default 2; `quanteOre`, default 6).
 - `previsioni`: prossimi giorni. Opzione: `giorni` (default 6).
 - `nota`: testo libero. Opzioni: `titolo`, `testo`.
+- `app`: riga di app da aprire col telecomando. Opzioni: `titolo`, `app` (lista di `{ "nome": "...", "id": "facoltativo", "colore": "facoltativo" }`). L'app si cerca per nome tra quelle installate; l'ID serve solo se il nome è ambiguo.
+
+## Telecomando
+
+- Frecce: spostano il riquadro evidenziato. OK: apre l'app.
+- Tasto rosso: ricarica la schermata.
+- Tasto blu: mostra/nasconde l'elenco di tutte le app installate con il loro ID.
 
 Ogni widget accetta `area`: `sinistra`, `destra` o `basso`.
 

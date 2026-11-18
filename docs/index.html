@@ -4,21 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=1920, height=1080">
 <title>Casa</title>
-<script>
-  // Carica stile e codice con un parametro sempre nuovo, così la TV
-  // non resta bloccata su una versione vecchia presa dalla cache.
-  (function () {
-    var v = Date.now();
-    document.write('<link rel="stylesheet" href="style.css?v=' + v + '">');
-    document.write('<script src="app.js?v=' + v + '"><\/script>');
-  })();
-</script>
 </head>
 <body>
-  <main id="schermo">
-    <section class="area" id="area-sinistra"></section>
-    <section class="area" id="area-destra"></section>
-    <section class="area" id="area-basso"></section>
-  </main>
+<!--
+  Anteprima dal browser del computer. Sulla TV la schermata viene caricata
+  dal modulo TizenBrew (app/index.html), non da questa pagina.
+  Aggiungi ?mock=1 all'indirizzo per usare dati di prova.
+-->
+<script>window.CASA_BASE = "";</script>
+<script src="avvio.js"></script>
 </body>
 </html>

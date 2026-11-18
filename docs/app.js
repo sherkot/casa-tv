@@ -16,6 +16,8 @@
   "use strict";
 
   var MOCK = /[?&]mock=1/.test(location.search);
+  // Indirizzo da cui leggere config.json e version.json (vuoto = stessa cartella).
+  var BASE = window.CASA_BASE || "";
   var GIORNI_BREVI = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
   var GIORNI = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"];
   var MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio",
@@ -234,7 +236,9 @@
 
     /**
      * Meteo di adesso: icona, temperatura, descrizione, temperatura percepita,
-     * umidità, vento e una striscia con le prossime ore (ogni 2 ore).
+     * umidità, vento e una striscia in basso. Con "striscia": "giorni" la striscia
+     * mostra i prossimi giorni (opzione "giorni", default 5); altrimenti le prossime
+     * ore (opzioni "passoOre", default 2, e "quanteOre", default 6).
      */
     meteo: function (voce, config) {
       var el = creaContenitore(voce.area || "destra", "meteo", true);
@@ -250,7 +254,9 @@
           '<div class="dettagli"><span>Percepita <b class="numeri">' + Math.round(c.apparent_temperature) + "°</b></span>" +
           '<span>Umidità <b class="numeri">' + Math.round(c.relative_humidity_2m) + "%</b></span>" +
           '<span>Vento <b class="numeri">' + Math.round(c.wind_speed_10m) + " km/h</b></span></div>" +
-          '<div class="ore">' + striscia(dati.hourly, voce.passoOre || 2, voce.quanteOre || 6) + "</div>";
+          '<div class="ore">' + (voce.striscia === "giorni"
+            ? strisciaGiorni(dati.daily, voce.giorni || 5)
+            : striscia(dati.hourly, voce.passoOre || 2, voce.quanteOre || 6)) + "</div>";
         el.innerHTML = html;
       });
     },
@@ -282,6 +288,47 @@
     },
 
     /**
+     * Riga di app da aprire con il telecomando.
+     * In config.json ogni app si indica per "nome" (come appare sulla TV); la TV
+     * cerca da sola l'ID giusto tra le app installate. Se il nome è ambiguo
+     * si può forzare l'ID con "id" (l'elenco completo si vede col tasto blu).
+     * Opzioni della voce: "titolo" e "app" (lista di { nome, id?, colore? }).
+     */
+    app: function (voce) {
+      var el = creaContenitore(voce.area || "basso", "app", false);
+      el.innerHTML = '<p class="etichetta"></p><div class="riquadri"></div>';
+      el.querySelector(".etichetta").textContent = voce.titolo || "App";
+      var contenitore = el.querySelector(".riquadri");
+
+      elencoAppInstallate().then(function (installate) {
+        (voce.app || []).forEach(function (a) {
+          var trovata = cercaApp(installate, a);
+          var r = document.createElement("div");
+          r.className = "riquadro tasto" + (trovata ? "" : " assente");
+          if (a.colore) { r.style.background = a.colore; }
+          var nome = document.createElement("div");
+          nome.className = "nome-app";
+          nome.textContent = a.nome;
+          if (trovata && trovata.iconPath) {
+            var img = document.createElement("img");
+            img.src = trovata.iconPath.charAt(0) === "/" ? "file://" + trovata.iconPath : trovata.iconPath;
+            img.onerror = function () { img.parentNode && img.parentNode.removeChild(img); r.className += " senza-icona"; };
+            r.appendChild(img);
+          } else {
+            r.className += " senza-icona";
+          }
+          r.appendChild(nome);
+          r.attivare = function () {
+            if (!trovata) { avviso("Non trovo «" + a.nome + "» tra le app della TV (tasto blu per l'elenco)"); return; }
+            apriApp(trovata.id, a.nome);
+          };
+          contenitore.appendChild(r);
+        });
+        if (!fuoco) { metti(document.querySelector(".tasto")); }
+      });
+    },
+
+    /**
      * Riquadro di testo libero: un titolo piccolo e un testo grande.
      * Utile per promemoria, frasi, avvisi di casa. Il testo si cambia in config.json.
      */
@@ -292,6 +339,26 @@
       el.querySelector(".testo").textContent = voce.testo || "";
     }
   };
+
+  /**
+   * Costruisce l'HTML della striscia "prossimi giorni" del widget meteo:
+   * per ogni giorno nome, icona, massima/minima e pioggia (se almeno 20%).
+   */
+  function strisciaGiorni(daily, quanti) {
+    var html = "";
+    var n = Math.min(quanti, daily.time.length);
+    for (var i = 0; i < n; i++) {
+      var parti = daily.time[i].split("-");
+      var g = new Date(+parti[0], +parti[1] - 1, +parti[2]);
+      var p = daily.precipitation_probability_max[i];
+      html += '<div class="ora-col"><div class="h">' + (i === 0 ? "Oggi" : GIORNI_BREVI[g.getDay()]) + "</div>" +
+        icona(daily.weather_code[i], true) +
+        '<div class="t numeri">' + Math.round(daily.temperature_2m_max[i]) + '° <span class="tmin">' +
+        Math.round(daily.temperature_2m_min[i]) + "°</span></div>" +
+        '<div class="p numeri">' + (p >= 20 ? p + "%" : "") + "</div></div>";
+    }
+    return html;
+  }
 
   /**
    * Costruisce l'HTML della striscia oraria del widget meteo.
@@ -318,21 +385,180 @@
   }
 
   /* =====================================================================
+   * App della TV: elenco, ricerca per nome, apertura
+   * ===================================================================== */
+
+  /**
+   * Restituisce (in una Promise) l'elenco delle app installate sulla TV,
+   * ognuna con id, name e iconPath. Fuori dalla TV (anteprima sul computer)
+   * restituisce un elenco finto con qualche app comune.
+   */
+  function elencoAppInstallate() {
+    return new Promise(function (ok) {
+      try {
+        if (window.tizen && tizen.application && tizen.application.getAppsInfo) {
+          tizen.application.getAppsInfo(function (lista) { ok(lista || []); }, function () { ok([]); });
+          return;
+        }
+      } catch (e) {}
+      ok(["YouTube", "Netflix", "Prime Video", "Disney+", "RaiPlay", "Mediaset Infinity", "DAZN", "TizenBrew"]
+        .map(function (n, i) { return { id: "finto." + i, name: n, iconPath: "" }; }));
+    });
+  }
+
+  /**
+   * Riduce un nome a sole lettere e numeri minuscoli ("Disney+" → "disney"),
+   * così il confronto tra il nome in config.json e quello della TV è tollerante.
+   */
+  function normalizza(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+
+  /**
+   * Cerca un'app nell'elenco delle installate: prima per ID esatto (se indicato),
+   * poi per nome identico, infine per nome che contiene quello cercato.
+   * Restituisce l'app trovata oppure null.
+   */
+  function cercaApp(installate, voce) {
+    var i;
+    if (voce.id) {
+      for (i = 0; i < installate.length; i++) { if (installate[i].id === voce.id) { return installate[i]; } }
+    }
+    var cercato = normalizza(voce.nome);
+    for (i = 0; i < installate.length; i++) { if (normalizza(installate[i].name) === cercato) { return installate[i]; } }
+    for (i = 0; i < installate.length; i++) {
+      if (cercato && normalizza(installate[i].name).indexOf(cercato) !== -1) { return installate[i]; }
+    }
+    return null;
+  }
+
+  /**
+   * Apre un'app della TV dato il suo ID. Fuori dalla TV mostra solo un avviso.
+   */
+  function apriApp(id, nome) {
+    try {
+      if (window.tizen && tizen.application) {
+        tizen.application.launch(id, function () {}, function (e) {
+          avviso("Non riesco ad aprire " + nome + ": " + (e && e.message ? e.message : "errore"));
+        });
+        return;
+      }
+    } catch (e) {
+      avviso("Errore aprendo " + nome + ": " + e.message);
+      return;
+    }
+    avviso("Sulla TV qui si aprirebbe " + nome);
+  }
+
+  /**
+   * Mostra per 4 secondi un messaggio in basso al centro dello schermo.
+   */
+  function avviso(testo) {
+    var el = document.getElementById("avviso");
+    if (!el) { return; }
+    el.textContent = testo;
+    el.className = "visibile";
+    clearTimeout(avviso.timer);
+    avviso.timer = setTimeout(function () { el.className = ""; }, 4000);
+  }
+
+  /**
+   * Tasto blu: mostra/nasconde un pannello con tutte le app installate e il loro ID.
+   * Serve per sapere il nome esatto da scrivere in config.json.
+   */
+  function pannelloApp() {
+    var p = document.getElementById("pannello-app");
+    if (p) { p.parentNode.removeChild(p); return; }
+    elencoAppInstallate().then(function (lista) {
+      p = document.createElement("div");
+      p.id = "pannello-app";
+      var righe = lista.filter(function (a) { return a.show !== false; })
+        .sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); })
+        .map(function (a) { return "<div><b></b><span></span></div>"; }).join("");
+      p.innerHTML = "<h2>App installate (tasto blu per chiudere)</h2><div class=\"lista\">" + righe + "</div>";
+      var ordinate = lista.filter(function (a) { return a.show !== false; })
+        .sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+      var celle = p.querySelectorAll(".lista > div");
+      for (var i = 0; i < celle.length; i++) {
+        celle[i].querySelector("b").textContent = ordinate[i].name;
+        celle[i].querySelector("span").textContent = ordinate[i].id;
+      }
+      document.body.appendChild(p);
+    });
+  }
+
+  /* =====================================================================
+   * Navigazione con il telecomando (frecce + OK)
+   * ===================================================================== */
+
+  var fuoco = null;
+
+  /**
+   * Sposta il "fuoco" (il riquadro evidenziato) sull'elemento indicato.
+   */
+  function metti(el) {
+    if (!el) { return; }
+    if (fuoco) { fuoco.className = fuoco.className.replace(/\s*attivo/g, ""); }
+    fuoco = el;
+    fuoco.className += " attivo";
+  }
+
+  /**
+   * Trova il riquadro più vicino nella direzione premuta (sinistra, destra, su, giù)
+   * guardando la posizione sullo schermo. Funziona con qualsiasi disposizione
+   * dei widget, senza doverla descrivere a mano.
+   */
+  function muovi(dx, dy) {
+    var tasti = document.querySelectorAll(".tasto");
+    if (!fuoco) { metti(tasti[0]); return; }
+    var a = fuoco.getBoundingClientRect();
+    var ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+    var migliore = null, punteggio = Infinity;
+    for (var i = 0; i < tasti.length; i++) {
+      if (tasti[i] === fuoco) { continue; }
+      var b = tasti[i].getBoundingClientRect();
+      var bx = b.left + b.width / 2, by = b.top + b.height / 2;
+      var lungo = dx ? (bx - ax) * dx : (by - ay) * dy;
+      if (lungo <= 0) { continue; }
+      var largo = dx ? Math.abs(by - ay) : Math.abs(bx - ax);
+      var p = lungo + largo * 2;
+      if (p < punteggio) { punteggio = p; migliore = tasti[i]; }
+    }
+    if (migliore) { metti(migliore); }
+  }
+
+  /**
+   * Gestione dei tasti: frecce per muoversi, OK per aprire,
+   * rosso per ricaricare la schermata, blu per l'elenco delle app.
+   */
+  document.addEventListener("keydown", function (e) {
+    switch (e.keyCode) {
+      case 37: muovi(-1, 0); break;
+      case 39: muovi(1, 0); break;
+      case 38: muovi(0, -1); break;
+      case 40: muovi(0, 1); break;
+      case 13: if (fuoco && fuoco.attivare) { fuoco.attivare(); } break;
+      case 403: location.reload(); break;
+      case 406: pannelloApp(); break;
+      default: return;
+    }
+    e.preventDefault();
+  });
+
+  /* =====================================================================
    * Aggiornamento automatico quando pubblichi una nuova versione
    * ===================================================================== */
 
   /**
    * Legge version.json all'avvio e poi ogni 2 minuti.
-   * Se il valore "versione" cambia, ricarica la pagina con un indirizzo nuovo
-   * (così la cache della TV non può trattenere la versione vecchia).
+   * Se il valore "versione" cambia, ricarica la pagina: il caricatore riscarica
+   * tutto con parametri nuovi, quindi la cache della TV non trattiene la versione vecchia.
    */
   function controllaVersioni() {
     var iniziale = null;
     function controlla() {
-      scaricaJson("version.json").then(function (v) {
+      scaricaJson(BASE + "version.json").then(function (v) {
         if (iniziale === null) { iniziale = v.versione; return; }
         if (v.versione !== iniziale) {
-          location.replace(location.pathname + "?v=" + Date.now() + (MOCK ? "&mock=1" : ""));
+          location.reload();
         }
       }).catch(function () { /* rete assente: si riprova al giro dopo */ });
     }
@@ -357,7 +583,7 @@
    * avvia il meteo (ogni 15 minuti) e il controllo delle nuove versioni.
    */
   function avvia() {
-    scaricaJson("config.json").then(function (config) {
+    scaricaJson(BASE + "config.json").then(function (config) {
       (config.widgets || []).forEach(function (voce) {
         var fn = WIDGET[voce.tipo];
         if (fn) {
