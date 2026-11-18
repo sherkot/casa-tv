@@ -82,6 +82,23 @@ Cosa serve, a seconda di cosa cambi:
 
 Non spostare né riutilizzare un tag già pubblicato: jsDelivr lo tiene in cache per sempre. Per una correzione crea il tag successivo (es. `v0.7.1`).
 
+## App Casa per la TV
+
+`tv-app/` è un'app separata da TizenBrew, con ID `CasaTVmrco.Casa`. Contiene solo un caricatore (`tv-app/index.html`) che scarica la schermata da GitHub Pages, la stessa di `docs/`. Le modifiche alla schermata arrivano quindi da sole, senza reinstallare l'app. Dentro l'app la schermata usa direttamente le API della TV, senza il servizio del modulo TizenBrew.
+
+**Costruzione e firma.** Lo fa il workflow `.github/workflows/build-tv-app.yaml` quando pubblichi un tag `app-vX.Y.Z`:
+
+```
+git tag -a app-v1.0.1 -m "App Casa 1.0.1"
+git push origin app-v1.0.1
+```
+
+Il workflow installa Tizen Studio, firma l'app e pubblica `Casa.wgt` in una release di GitHub con il nome del tag. Puoi seguirlo con `gh run watch`. I tag `app-v…` sono separati da quelli del modulo TizenBrew (`v…`) e non li sostituiscono. Ricordati di aumentare anche `version` in `tv-app/config.xml`.
+
+**Installazione sulla TV.** Apri il TizenBrew Installer → "Install from GitHub" → `sherkot/casa-tv`. L'installer prende `Casa.wgt` dall'ultima release.
+
+**Aggiornamento.** Il workflow crea un certificato autore nuovo a ogni esecuzione. La TV può quindi rifiutare una versione nuova firmata con un certificato diverso: in quel caso disinstalla prima la versione vecchia dell'app Casa, poi installa la nuova.
+
 ## Prova dal computer
 
 ```

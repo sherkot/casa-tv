@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  App "Casa" per la TV Samsung (Tizen 5.0, Q60R del 2019).
+  È un'app separata da TizenBrew: SmartThings la apre all'accensione della TV.
+  Contiene solo un caricatore (index.html) che scarica la schermata da GitHub Pages,
+  quindi le modifiche alla schermata non richiedono di reinstallare l'app.
+-->
+<widget xmlns:tizen="http://tizen.org/ns/widgets" xmlns="http://www.w3.org/ns/widgets" id="https://sherkot.github.io/casa-tv/app" version="1.0.0" viewmodes="maximized">
+    <access origin="*" subdomains="true"></access>
+    <tizen:application id="CasaTVmrco.Casa" package="CasaTVmrco" required_version="3.0"/>
+    <content src="index.html"/>
+    <feature name="http://tizen.org/feature/screen.size.all"/>
+    <icon src="icon.png"/>
+    <name>Casa</name>
+    <tizen:metadata key="http://samsung.com/tv/metadata/prelaunch.support" value="false"/>
+    <tizen:privilege name="http://tizen.org/privilege/internet"/>
+    <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+    <tizen:privilege name="http://tizen.org/privilege/application.launch"/>
+    <tizen:privilege name="http://tizen.org/privilege/application.info"/>
+    <tizen:profile name="tv-samsung"/>
+    <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="disable" encryption="disable" install-location="auto" hwkey-event="enable"/>
+</widget>

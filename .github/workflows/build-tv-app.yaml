@@ -1,0 +1,91 @@
+# Costruisce e firma l'app "Casa" per la TV (cartella tv-app/) e la pubblica
+# come release su GitHub. Parte quando si pubblica un tag "app-vX.Y.Z".
+#
+# Firma come fa TizenBrew per le TV fino al 2022 (Tizen < 7): certificato
+# autore generato da Tizen Studio (CA sviluppatore Tizen) + certificato
+# distributore pubblico dell'SDK Tizen. Il certificato autore viene creato a
+# ogni esecuzione: per installare una nuova versione sulla TV può servire
+# disinstallare prima quella vecchia.
+#
+# Sulla TV si installa con il TizenBrew Installer → "Install from GitHub" →
+# sherkot/casa-tv (prende il .wgt dell'ultima release).
+
+name: App Casa per la TV
+
+on:
+  push:
+    tags:
+      - 'app-v*'
+
+permissions:
+  contents: write
+
+env:
+  TIZEN_STUDIO_VER: 5.6
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scarica il repository
+        uses: actions/checkout@v4
+
+      - name: Strumenti di base
+        run: sudo apt-get update && sudo apt-get install -y expect zip
+
+      - name: Scarica e installa Tizen Studio (riga di comando)
+        run: |
+          curl -fsSLo tizen-installer "https://download.tizen.org/sdk/Installer/tizen-studio_${TIZEN_STUDIO_VER}/web-cli_Tizen_Studio_${TIZEN_STUDIO_VER}_ubuntu-64.bin"
+          chmod +x tizen-installer
+          ./tizen-installer --accept-license "${GITHUB_WORKSPACE}/tizen-studio"
+          rm ./tizen-installer
+
+      - name: Crea il certificato autore e il profilo di firma
+        run: |
+          TIZEN="${GITHUB_WORKSPACE}/tizen-studio/tools/ide/bin/tizen"
+          PW="$(openssl rand -hex 12)"
+          echo "::add-mask::${PW}"
+          "$TIZEN" certificate -a casatv -p "$PW" -c IT -ct "Reggio Emilia" -o "Casa" -n "Casa TV" -f casa-author
+          AUTHOR="$(find "$HOME" "$GITHUB_WORKSPACE" -name 'casa-author.p12' 2>/dev/null | head -1)"
+          test -n "$AUTHOR" || { echo "Certificato autore non trovato"; exit 1; }
+          CERTS="${GITHUB_WORKSPACE}/tizen-studio/tools/certificate-generator/certificates"
+          mkdir -p "${GITHUB_WORKSPACE}/tizen-studio-data/profile"
+          cat > "${GITHUB_WORKSPACE}/tizen-studio-data/profile/profiles.xml" <<XML
+          <?xml version="1.0" encoding="UTF-8" standalone="no"?>
+          <profiles active="CasaOld" version="3.1">
+          <profile name="CasaOld">
+          <profileitem ca="${CERTS}/developer/tizen-developer-ca.cer" distributor="0" key="${AUTHOR}" password="${PW}" rootca=""/>
+          <profileitem ca="${CERTS}/distributor/sdk-public/tizen-distributor-ca.cer" distributor="1" key="${CERTS}/distributor/sdk-public/tizen-distributor-signer.p12" password="tizenpkcs12passfordsigner" rootca=""/>
+          <profileitem ca="" distributor="2" key="" password="" rootca=""/>
+          </profile>
+          </profiles>
+          XML
+          sed -i 's/^          //' "${GITHUB_WORKSPACE}/tizen-studio-data/profile/profiles.xml"
+          "$TIZEN" cli-config "profiles.path=${GITHUB_WORKSPACE}/tizen-studio-data/profile/profiles.xml"
+
+      - name: Costruisci l'app
+        working-directory: tv-app
+        run: |
+          "${GITHUB_WORKSPACE}/tizen-studio/tools/ide/bin/tizen" build-web -e ".*" -e "release/*"
+
+      - name: Crea il pacchetto .wgt firmato
+        working-directory: tv-app
+        run: |
+          cat > package.exp <<EXP
+          #!/usr/bin/expect -f
+          set timeout 300
+          spawn ${GITHUB_WORKSPACE}/tizen-studio/tools/ide/bin/tizen package -t wgt -o ./release -s CasaOld -- .buildResult
+          expect eof
+          EXP
+          sed -i 's/^          //' package.exp
+          expect ./package.exp
+          ls -la release
+          mv release/*.wgt release/Casa.wgt
+          cat "${GITHUB_WORKSPACE}/tizen-studio-data/cli/logs/cli.log" 2>/dev/null | tail -20 || true
+
+      - name: Pubblica la release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: App Casa ${{ github.ref_name }}
+          files: tv-app/release/Casa.wgt

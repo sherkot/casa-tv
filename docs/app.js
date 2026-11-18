@@ -336,7 +336,7 @@
           r.appendChild(nome);
           r.attivare = function () {
             if (!trovata) { avviso("Non trovo «" + testo + "» tra le app della TV (tasto blu per l'elenco)"); return; }
-            if (trovata.modulo) { apriModulo(trovata.modulo, testo); return; }
+            if (trovata.modulo) { apriModulo(trovata.modulo, testo, a); return; }
             apriApp(trovata.id, testo);
           };
           contenitore.appendChild(r);
@@ -407,7 +407,12 @@
 
   /* Indirizzo del servizio del modulo (service/service.js), attivo solo sulla TV. */
   var SERVIZIO = "http://127.0.0.1:8187";
-  var SULLA_TV = location.hostname === "127.0.0.1" && location.port === "8081";
+  // DIRETTA: la schermata gira dentro l'app "Casa" installata sulla TV e può usare
+  // direttamente le API della TV. Altrimenti gira dentro TizenBrew (porta 8081) e
+  // passa dal servizio del modulo, oppure è un'anteprima sul computer.
+  var DIRETTA = !!(window.CASA_STANDALONE && window.tizen && tizen.application);
+  var SULLA_TV = DIRETTA || (location.hostname === "127.0.0.1" && location.port === "8081");
+  var ID_TIZENBREW = "xvvl3S1bvH.TizenBrewStandalone";
 
   /**
    * Chiede una risposta JSON al servizio del modulo, con un limite di tempo.
@@ -436,6 +441,23 @@
    * per questo riprova fino a 6 volte. Fuori dalla TV restituisce un elenco finto.
    */
   function elencoAppInstallate() {
+    if (DIRETTA) {
+      // Dentro l'app Casa: chiede l'elenco direttamente alla TV. Le icone condivise
+      // da più app sono l'icona generica di Samsung (la girandola) e vengono scartate.
+      return new Promise(function (ok) {
+        try {
+          tizen.application.getAppsInfo(function (lista) {
+            var uso = {};
+            (lista || []).forEach(function (a) { if (a.iconPath) { uso[a.iconPath] = (uso[a.iconPath] || 0) + 1; } });
+            ok((lista || []).map(function (a) {
+              var icona = a.iconPath && uso[a.iconPath] === 1 ? a.iconPath : "";
+              if (icona && icona.charAt(0) === "/") { icona = "file://" + icona; }
+              return { id: a.id, name: a.name, show: a.show !== false, iconPath: icona };
+            }));
+          }, function () { ok([]); });
+        } catch (e) { ok([]); }
+      });
+    }
     if (!SULLA_TV) {
       return Promise.resolve(["Netflix", "Prime Video", "Disney+", "RaiPlay", "Mediaset Infinity", "NOW", "YouTube", "TizenBrew"]
         .map(function (n, i) { return { id: "finto." + i, name: n, iconPath: "" }; }));
@@ -492,11 +514,43 @@
    */
   function apriApp(id, nome) {
     if (!SULLA_TV) { avviso("Sulla TV qui si aprirebbe " + nome); return; }
+    if (DIRETTA) {
+      avviso("Apro " + nome + "…");
+      try {
+        tizen.application.launch(id, function () {}, function (e) {
+          avviso("Non riesco ad aprire " + nome + ": " + ((e && e.message) || "errore"));
+        });
+      } catch (e) { avviso("Errore aprendo " + nome + ": " + e.message); }
+      return;
+    }
     avviso("Apro " + nome + "…");
     // torna=1: quando chiudi l'app, il servizio riporta la TV su Casa.
     chiediServizio("/apri?id=" + encodeURIComponent(id) + "&torna=1", 8000).catch(function (e) {
       avviso("Non riesco ad aprire " + nome + ": " + e.message);
     });
+  }
+
+  /**
+   * Dentro l'app Casa: chiede a TizenBrew di aprire direttamente un suo modulo
+   * (per esempio TizenTube), senza passare dalla home di TizenBrew. TizenBrew
+   * legge la richiesta all'avvio: il primo dato deve contenere un JSON con
+   * moduleName (es. "@foxreis/tizentube") e moduleType (es. "npm").
+   * In config.json: "moduloNome" e "moduloTipo" nella voce dell'app.
+   */
+  function apriModuloDaApp(nome, voce) {
+    var dati = JSON.stringify({ moduleName: voce.moduloNome || "@foxreis/tizentube", moduleType: voce.moduloTipo || "npm" });
+    avviso("Apro " + nome + "…");
+    try {
+      var controllo = new tizen.ApplicationControl(
+        "http://tizen.org/appcontrol/operation/view", null, null, null,
+        [new tizen.ApplicationControlData("module", [dati])]
+      );
+      tizen.application.launchAppControl(controllo, ID_TIZENBREW, function () {}, function (e) {
+        avviso("Non riesco ad aprire " + nome + ": " + ((e && e.message) || "errore"));
+      });
+    } catch (e) {
+      avviso("Errore aprendo " + nome + ": " + e.message);
+    }
   }
 
   /**
@@ -507,8 +561,9 @@
    * e poi passa all'indirizzo del modulo.
    * "cercato" è una parte del nome del modulo, es. "tizentube".
    */
-  function apriModulo(cercato, nome) {
+  function apriModulo(cercato, nome, voce) {
     if (!SULLA_TV) { avviso("Sulla TV qui si aprirebbe " + nome); return; }
+    if (DIRETTA) { apriModuloDaApp(nome, voce || {}); return; }
     var re = new RegExp(cercato, "i");
     var ws, modulo = null, chiesto = 0, finito = false;
     var timer = setTimeout(function () { fine("TizenBrew non risponde"); }, 6000);
@@ -688,7 +743,7 @@
    */
   function avvia() {
     // Casa è di nuovo a schermo: il servizio può smettere di osservare l'app di prima.
-    if (SULLA_TV) { chiediServizio("/osserva?stop=1", 3000).catch(function () {}); }
+    if (SULLA_TV && !DIRETTA) { chiediServizio("/osserva?stop=1", 3000).catch(function () {}); }
     scaricaJson(BASE + "config.json").then(function (config) {
       (config.widgets || []).forEach(function (voce) {
         var fn = WIDGET[voce.tipo];

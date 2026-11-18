@@ -41,7 +41,9 @@
           "nome": "TizenTube",
           "modulo": "tizentube",
           "colore": "#5b2a86",
-          "iconaDa": "YouTube"
+          "iconaDa": "YouTube",
+          "moduloNome": "@foxreis/tizentube",
+          "moduloTipo": "npm"
         },
         {
           "nome": "NOW",
