@@ -29,7 +29,11 @@ La TV controlla `docs/version.json` ogni 2 minuti: quando il numero cambia, rica
   - `cerca`: nomi alternativi da provare, es. `["NOW TV", "NOWTV"]`;
   - `id`: ID esatto, solo se il nome è ambiguo (tasto blu per l'elenco);
   - `modulo`: apre un modulo TizenBrew invece di un'app, es. `"tizentube"`;
-  - `colore`: colore di sfondo del riquadro.
+  - `colore`: colore di sfondo del riquadro;
+  - `icona`: indirizzo di un'immagine da usare al posto dell'icona fornita dalla TV;
+  - `iconaDa`: nome di un'altra app installata da cui prendere l'icona (TizenTube usa quella di YouTube).
+
+Le icone sono quelle installate sulla TV. Se la TV indica l'icona generica di Samsung (la girandola), il servizio cerca l'icona vera nella cartella dell'app. Se non trova nulla, il riquadro mostra il nome sullo sfondo `colore`.
 
 ### Aggiungere un'app
 

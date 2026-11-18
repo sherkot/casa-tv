@@ -295,7 +295,10 @@
      *  - "cerca": lista di nomi alternativi da provare (es. ["NOW", "NOW TV"]);
      *  - "id": forza l'ID esatto (l'elenco completo si vede col tasto blu);
      *  - "modulo": apre un modulo di TizenBrew invece di un'app (es. "tizentube");
-     *  - "colore": colore di sfondo del riquadro.
+     *  - "colore": colore di sfondo del riquadro;
+     *  - "icona": indirizzo di un'immagine da usare al posto dell'icona della TV;
+     *  - "iconaDa": nome di un'altra app installata da cui prendere l'icona.
+     *  Il "colore" si usa solo quando l'icona manca.
      */
     app: function (voce) {
       var el = creaContenitore(voce.area || "basso", "app", false);
@@ -309,17 +312,26 @@
           var testo = a.etichetta || a.nome;
           var r = document.createElement("div");
           r.className = "riquadro tasto" + (trovata ? "" : " assente");
-          if (a.colore) { r.style.background = a.colore; }
           var nome = document.createElement("div");
           nome.className = "nome-app";
           nome.textContent = testo;
-          if (trovata && trovata.iconPath) {
+          // Icona, in ordine di preferenza: un'immagine indicata in config.json
+          // ("icona"), l'icona di un'altra app installata ("iconaDa", es. TizenTube
+          // con l'icona di YouTube), l'icona dell'app stessa presa dalla TV.
+          // Se non c'è o non si carica, il riquadro mostra il nome su sfondo "colore".
+          var prestata = a.iconaDa ? cercaApp(installate, { nome: a.iconaDa }) : null;
+          var srcIcona = a.icona || (prestata && prestata.iconPath) || (trovata && trovata.iconPath) || "";
+          function senzaIcona() {
+            r.className += " senza-icona";
+            if (a.colore) { r.style.background = a.colore; }
+          }
+          if (trovata && srcIcona) {
             var img = document.createElement("img");
-            img.src = trovata.iconPath;
-            img.onerror = function () { if (img.parentNode) { img.parentNode.removeChild(img); } r.className += " senza-icona"; };
+            img.src = srcIcona;
+            img.onerror = function () { if (img.parentNode) { img.parentNode.removeChild(img); } senzaIcona(); };
             r.appendChild(img);
           } else {
-            r.className += " senza-icona";
+            senzaIcona();
           }
           r.appendChild(nome);
           r.attivare = function () {

@@ -17,6 +17,7 @@
 * { box-sizing: border-box; }
 
 html, body {
+  background-color: #0b0f17 !important;
   margin: 0;
   width: 1920px;
   height: 1080px;
@@ -30,6 +31,14 @@ html, body {
 }
 
 #schermo {
+  /* Sfondo dipinto qui e non solo sul body: dentro TizenBrew lo sfondo del
+     body può essere coperto da quello di TizenBrew (blu). */
+  position: fixed;
+  top: 0;
+  left: 0;
+  background: var(--sfondo);
+  background-image: radial-gradient(1200px 800px at 85% -10%, #1b2a44 0%, rgba(27, 42, 68, 0) 60%),
+                    linear-gradient(180deg, var(--sfondo) 0%, var(--sfondo-2) 100%);
   width: 1920px;
   height: 1080px;
   padding: 72px 96px 64px;

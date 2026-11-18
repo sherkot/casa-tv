@@ -30,14 +30,17 @@
           "nome": "Disney+"
         },
         {
-          "nome": "Netflix"
+          "nome": "Netflix",
+          "colore": "#8e0c13"
         },
         {
           "nome": "Prime Video"
         },
         {
           "nome": "TizenTube",
-          "modulo": "tizentube"
+          "modulo": "tizentube",
+          "colore": "#5b2a86",
+          "iconaDa": "YouTube"
         },
         {
           "nome": "NOW",
