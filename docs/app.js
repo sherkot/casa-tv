@@ -741,7 +741,68 @@
    * Punto di partenza: legge la configurazione, crea i widget nell'ordine indicato,
    * avvia il meteo (ogni 15 minuti) e il controllo delle nuove versioni.
    */
+  /**
+   * Dentro l'app Casa: si assicura che sulla TV giri il "guardiano
+   * dell'accensione", la parte del servizio del modulo (service/service.js,
+   * versione 5 o successiva) che riapre Casa appena riaccendi la TV.
+   *
+   * Il servizio gira dentro il servizio di TizenBrew. Se non risponde né sulla
+   * porta 8187 né sulla 8188 (dove si sposta quando la 8187 è ancora occupata
+   * dalla versione vecchia), chiede al servizio di TizenBrew di avviarlo
+   * (messaggio type 6, StartService, sul WebSocket 127.0.0.1:8081). Se anche il
+   * servizio di TizenBrew è spento, prova prima ad avviare quello.
+   * Dopo il primo avvio il servizio si registra da solo tra quelli che TizenBrew
+   * fa partire in automatico, quindi qui di solito non serve fare niente.
+   */
+  var MODULO_SERVIZIO = { fullName: "gh/sherkot/casa-tv@v0.7.0", name: "sherkot/casa-tv@v0.7.0", serviceFile: "service/service.js" };
+
+  function assicuraGuardiano(tentativo) {
+    tentativo = tentativo || 1;
+    /** Chiede /stato a una porta e chiama fatto(true) se il guardiano è attivo. */
+    function guardianoSu(porta, fatto) {
+      var x = new XMLHttpRequest(), dato = false;
+      function esito(v) { if (!dato) { dato = true; fatto(v); } }
+      try {
+        x.open("GET", "http://127.0.0.1:" + porta + "/stato", true);
+        x.timeout = 2000;
+        x.onload = function () {
+          var j = null;
+          try { j = JSON.parse(x.responseText); } catch (e) {}
+          esito(!!(j && Number(j.versione) >= 5 && j.guardiano && j.guardiano.attivo));
+        };
+        x.onerror = function () { esito(false); };
+        x.ontimeout = function () { esito(false); };
+        x.send();
+      } catch (e) { esito(false); }
+    }
+    guardianoSu(8187, function (ok1) {
+      if (ok1) { return; }
+      guardianoSu(8188, function (ok2) {
+        if (ok2 || tentativo > 4) { return; }
+        var ws;
+        try { ws = new WebSocket("ws://127.0.0.1:8081"); } catch (e) { return; }
+        ws.onopen = function () {
+          try { ws.send(JSON.stringify({ type: 6, payload: MODULO_SERVIZIO })); } catch (e) {}
+          setTimeout(function () { try { ws.close(); } catch (e) {} }, 500);
+          // Controlla di nuovo tra 15 secondi (il servizio va scaricato da jsDelivr).
+          setTimeout(function () { assicuraGuardiano(tentativo + 1); }, 15000);
+        };
+        ws.onerror = function () {
+          // Servizio di TizenBrew spento: prova ad avviarlo, poi riprova tra 10 secondi.
+          try {
+            tizen.application.launchAppControl(
+              new tizen.ApplicationControl("http://tizen.org/appcontrol/operation/service"),
+              "xvvl3S1bvH.StandaloneService", function () {}, function () {}
+            );
+          } catch (e) {}
+          setTimeout(function () { assicuraGuardiano(tentativo + 1); }, 10000);
+        };
+      });
+    });
+  }
+
   function avvia() {
+    if (DIRETTA) { setTimeout(assicuraGuardiano, 3000); }
     // Casa è di nuovo a schermo: il servizio può smettere di osservare l'app di prima.
     if (SULLA_TV && !DIRETTA) { chiediServizio("/osserva?stop=1", 3000).catch(function () {}); }
     scaricaJson(BASE + "config.json").then(function (config) {

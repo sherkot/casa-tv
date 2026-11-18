@@ -13,7 +13,7 @@
  * interni di Node.
  *
  * Indirizzi:
- *   GET /stato          → { ok, versione, tizen }
+ *   GET /stato          → { ok, versione, tizen, guardiano }
  *   GET /app            → { app: [ { id, name, show, icona } ] }
  *   GET /apri?id=ID     → apre l'app indicata; con &torna=1 riapre Casa quando
  *                         l'app viene chiusa
@@ -34,7 +34,9 @@
   var urlLib = require("url");
 
   var PORTA = 8187;
-  var VERSIONE = "4";
+  var VERSIONE = "5";
+  // Tag con cui questo modulo è installato in TizenBrew: va aggiornato a ogni nuovo tag v….
+  var TAG_MODULO = "v0.7.0";
   var CACHE_MS = 60000;
 
   var haTizen = typeof tizen !== "undefined" && !!tizen && !!tizen.application;
@@ -417,6 +419,134 @@
     timerOsserva = setInterval(controllaOsservata, OSSERVA_OGNI);
   }
 
+
+  /* =====================================================================
+   * Guardiano dell'accensione: riporta la TV su Casa appena la riaccendi.
+   *
+   * Perché qui: la regola SmartThings arriva con circa un minuto di ritardo e a
+   * volte la TV non segnala proprio lo spegnimento. Questo servizio invece gira
+   * sulla TV stessa, dentro il servizio di TizenBrew che resta attivo anche
+   * con la TV in standby, e se ne accorge da solo in un paio di secondi.
+   *
+   * Come capisce che la TV è stata riaccesa (due segnali, basta uno):
+   *   1. la TV dice "PowerState: standby" e poi "on" (API locale, porta 8001);
+   *   2. il timer si è fermato per più di 15 secondi: in standby profondo il
+   *      sistema viene congelato, quindi un "buco" vuol dire che si è appena
+   *      risvegliato. Se in quel momento la TV dice ancora "standby" si aspetta
+   *      che diventi "on", così non si apre niente a schermo spento.
+   * ===================================================================== */
+  var ID_CASA = "CasaTVmrco.Casa";
+  var BATTITO_MS = 2000;
+  var SALTO_MS = 15000;
+  var guardiano = { ultimo: Date.now(), stato: null, rientro: false, inCorso: false, aperture: 0, ultimaApertura: 0, avvio: Date.now() };
+
+  /**
+   * Restituisce un riassunto dello stato del guardiano, mostrato da /stato
+   * per controllare da fuori che stia funzionando.
+   */
+  function statoGuardiano() {
+    return {
+      attivo: !!(typeof process !== "undefined" && process && process.__casaGuardiano),
+      accensione: guardiano.stato,
+      aperture: guardiano.aperture,
+      ultimaApertura: guardiano.ultimaApertura ? new Date(guardiano.ultimaApertura).toISOString() : null,
+      attivoDa: new Date(guardiano.avvio).toISOString()
+    };
+  }
+
+  /**
+   * Legge dall'API locale della TV se lo schermo è acceso ("on"), in standby
+   * ("standby") oppure se la TV non lo dice (null).
+   */
+  function leggiAccensione(fatto) {
+    chiediTv("/api/v2/", function (j) {
+      var s = j && j.device && j.device.PowerState;
+      fatto(s === "on" || s === "standby" ? s : null);
+    });
+  }
+
+  /**
+   * Apre l'app Casa. Dopo 4 secondi controlla che sia davvero a schermo: se
+   * nel frattempo la TV ha rimesso davanti l'ultima app usata, la riapre una volta.
+   * Non apre Casa più di una volta ogni 30 secondi.
+   */
+  function apriCasaDopoAccensione() {
+    if (!haTizen) { return; }
+    if (Date.now() - guardiano.ultimaApertura < 30000) { return; }
+    guardiano.ultimaApertura = Date.now();
+    guardiano.aperture++;
+    smettiDiOsservare();
+    function lancia() { try { tizen.application.launch(ID_CASA, function () {}, function () {}); } catch (e) {} }
+    lancia();
+    setTimeout(function () {
+      chiediTv("/api/v2/applications/" + ID_CASA, function (j) {
+        if (j && j.visible === false) { lancia(); }
+      });
+    }, 4000);
+  }
+
+  /**
+   * Un controllo del guardiano, ogni 2 secondi.
+   */
+  function battitoGuardiano() {
+    var ora = Date.now();
+    if (ora - guardiano.ultimo > SALTO_MS) { guardiano.rientro = true; }
+    guardiano.ultimo = ora;
+    if (guardiano.inCorso) { return; }
+    guardiano.inCorso = true;
+    leggiAccensione(function (s) {
+      guardiano.inCorso = false;
+      var prima = guardiano.stato;
+      if (s) { guardiano.stato = s; }
+      if (s === "standby") { return; }
+      if ((s === "on" && prima === "standby") || guardiano.rientro) {
+        guardiano.rientro = false;
+        apriCasaDopoAccensione();
+      }
+    });
+  }
+
+  /**
+   * Fa partire il guardiano una sola volta, anche se TizenBrew avvia questo
+   * servizio più volte (per esempio una versione vecchia e una nuova): il
+   * segnale "già attivo" sta sull'oggetto process, comune a tutti i servizi.
+   */
+  function avviaGuardiano() {
+    if (typeof process === "undefined" || !process) { return; }
+    if (process.__casaGuardiano) { return; }
+    process.__casaGuardiano = VERSIONE;
+    setInterval(battitoGuardiano, BATTITO_MS);
+  }
+
+  /**
+   * Fa in modo che TizenBrew avvii questo servizio da solo ogni volta che parte:
+   * nel file di configurazione di TizenBrew mette questa versione del modulo al
+   * posto delle precedenti e la aggiunge ai servizi ad avvio automatico.
+   * Gli altri moduli e servizi restano come sono.
+   */
+  function registraAvvioAutomatico() {
+    var FILE = "/home/owner/share/tizenbrewConfig.json";
+    var mio = "gh/sherkot/casa-tv@" + TAG_MODULO;
+    var mioNome = mio.substring(mio.indexOf("/") + 1);
+    function nonCasa(m) { return !/sherkot\/casa-tv/i.test(String(m)); }
+    fs.readFile(FILE, "utf8", function (e, testo) {
+      if (e) { return; }
+      var c;
+      try { c = JSON.parse(testo); } catch (x) { return; }
+      var moduli = (c.modules || []).filter(nonCasa).concat([mio]);
+      var servizi = (c.autoLaunchServiceList || []).filter(nonCasa).concat([mioNome]);
+      if (JSON.stringify(moduli) === JSON.stringify(c.modules) &&
+          JSON.stringify(servizi) === JSON.stringify(c.autoLaunchServiceList)) { return; }
+      c.modules = moduli;
+      c.autoLaunchServiceList = servizi;
+      var tmp = FILE + ".casa-tmp";
+      fs.writeFile(tmp, JSON.stringify(c, null, 4), function (err) {
+        if (err) { return; }
+        fs.rename(tmp, FILE, function () {});
+      });
+    });
+  }
+
   var server = http.createServer(function (req, res) {
     var u = urlLib.parse(req.url, true);
     var percorso = u.pathname;
@@ -424,7 +554,7 @@
     if (req.method === "OPTIONS") { return invia(res, 204, {}); }
 
     if (percorso === "/stato") {
-      return invia(res, 200, { ok: true, versione: VERSIONE, tizen: haTizen });
+      return invia(res, 200, { ok: true, versione: VERSIONE, tizen: haTizen, porta: portaInUso, guardiano: statoGuardiano() });
     }
 
     if (percorso === "/app") {
@@ -481,9 +611,22 @@
     invia(res, 404, { errore: "indirizzo sconosciuto" });
   });
 
-  // Se la porta è già occupata (servizio già avviato), non fa nulla.
-  server.on("error", function () {});
-  server.listen(PORTA, "127.0.0.1");
+  // Se la porta è già occupata (per esempio da una versione vecchia del servizio,
+  // che resta attiva finché TizenBrew non si riavvia) prova la porta successiva.
+  var portaInUso = null;
+  var porte = [PORTA, PORTA + 1];
+  server.on("error", function () {
+    porte.shift();
+    if (porte.length) { try { server.listen(porte[0], "127.0.0.1"); } catch (e) {} }
+  });
+  server.on("listening", function () { portaInUso = porte[0]; });
+  server.listen(porte[0], "127.0.0.1");
+
+  // Il guardiano e la registrazione non dipendono dal server HTTP.
+  if (haTizen) {
+    avviaGuardiano();
+    registraAvvioAutomatico();
+  }
 
   // Solo per le prove sul computer: TizenBrew non legge module.exports.
   if (typeof module !== "undefined" && module) { module.exports = { server: server, PORTA: PORTA }; }
