@@ -697,6 +697,7 @@
       case 13: if (fuoco && fuoco.attivare) { fuoco.attivare(); } break;
       case 403: location.reload(); break;
       case 406: pannelloApp(); break;
+      case 405: if (pannelloDiagnosi.el) { pannelloDiagnosi.el.style.display = pannelloDiagnosi.el.style.display === "none" ? "" : "none"; } break;
       default: return;
     }
     e.preventDefault();
@@ -754,7 +755,17 @@
    * Dopo il primo avvio il servizio si registra da solo tra quelli che TizenBrew
    * fa partire in automatico, quindi qui di solito non serve fare niente.
    */
-  var MODULO_SERVIZIO = { fullName: "gh/sherkot/casa-tv@v0.7.0", name: "sherkot/casa-tv@v0.7.0", serviceFile: "service/service.js" };
+  var MODULO_SERVIZIO = { fullName: "gh/sherkot/casa-tv@v0.7.1", name: "sherkot/casa-tv@v0.7.1", serviceFile: "service/service.js" };
+  var VERSIONE_GUARDIANO = 6;
+  var diagnosiApp = [];
+
+  /** Annota un passo fatto dalla schermata per avviare il guardiano (per il pannello di diagnosi). */
+  function annotaApp(testo) {
+    var d = new Date();
+    function due(n) { return (n < 10 ? "0" : "") + n; }
+    diagnosiApp.push(due(d.getHours()) + ":" + due(d.getMinutes()) + ":" + due(d.getSeconds()) + " " + testo);
+    if (diagnosiApp.length > 12) { diagnosiApp.shift(); }
+  }
 
   function assicuraGuardiano(tentativo) {
     tentativo = tentativo || 1;
@@ -768,7 +779,7 @@
         x.onload = function () {
           var j = null;
           try { j = JSON.parse(x.responseText); } catch (e) {}
-          esito(!!(j && Number(j.versione) >= 5 && j.guardiano && j.guardiano.attivo));
+          esito(!!(j && Number(j.versione) >= VERSIONE_GUARDIANO && j.guardiano && j.guardiano.attivo));
         };
         x.onerror = function () { esito(false); };
         x.ontimeout = function () { esito(false); };
@@ -776,33 +787,86 @@
       } catch (e) { esito(false); }
     }
     guardianoSu(8187, function (ok1) {
-      if (ok1) { return; }
+      if (ok1) { annotaApp("guardiano attivo sulla porta 8187"); return; }
       guardianoSu(8188, function (ok2) {
-        if (ok2 || tentativo > 4) { return; }
+        if (ok2) { annotaApp("guardiano attivo sulla porta 8188"); return; }
+        if (tentativo > 4) { annotaApp("rinuncio: il guardiano non parte"); return; }
+        annotaApp("tentativo " + tentativo + ": guardiano non trovato, lo avvio");
         var ws;
         try { ws = new WebSocket("ws://127.0.0.1:8081"); } catch (e) { return; }
         ws.onopen = function () {
-          try { ws.send(JSON.stringify({ type: 6, payload: MODULO_SERVIZIO })); } catch (e) {}
+          annotaApp("servizio TizenBrew raggiunto, chiedo StartService");
+          try { ws.send(JSON.stringify({ type: 6, payload: MODULO_SERVIZIO })); } catch (e) { annotaApp("invio fallito: " + e.message); }
           setTimeout(function () { try { ws.close(); } catch (e) {} }, 500);
           // Controlla di nuovo tra 15 secondi (il servizio va scaricato da jsDelivr).
           setTimeout(function () { assicuraGuardiano(tentativo + 1); }, 15000);
         };
         ws.onerror = function () {
           // Servizio di TizenBrew spento: prova ad avviarlo, poi riprova tra 10 secondi.
+          annotaApp("servizio TizenBrew spento, provo ad avviarlo");
           try {
             tizen.application.launchAppControl(
               new tizen.ApplicationControl("http://tizen.org/appcontrol/operation/service"),
-              "xvvl3S1bvH.StandaloneService", function () {}, function () {}
+              "xvvl3S1bvH.StandaloneService",
+              function () { annotaApp("avvio servizio TizenBrew: ok"); },
+              function (e) { annotaApp("avvio servizio TizenBrew fallito: " + ((e && e.message) || "errore")); }
             );
-          } catch (e) {}
+          } catch (e) { annotaApp("avvio servizio TizenBrew errore: " + e.message); }
           setTimeout(function () { assicuraGuardiano(tentativo + 1); }, 10000);
         };
       });
     });
   }
 
+  /**
+   * Pannello di diagnosi del guardiano (temporaneo, per le prove): in basso a
+   * sinistra mostra cosa ha fatto la schermata per avviarlo e il registro del
+   * guardiano letto dalle porte 8187 e 8188. Si aggiorna ogni 5 secondi.
+   * Il tasto GIALLO lo nasconde o lo mostra.
+   */
+  function pannelloDiagnosi() {
+    var el = document.createElement("div");
+    el.id = "diagnosi";
+    el.style.cssText = "position:fixed;left:24px;bottom:24px;width:900px;max-height:520px;overflow:hidden;" +
+      "background:rgba(0,0,0,.82);color:#cfe3ff;font:18px/1.35 monospace;padding:14px 18px;border-radius:12px;z-index:50;white-space:pre-wrap";
+    document.body.appendChild(el);
+    pannelloDiagnosi.el = el;
+    function leggi(porta, fatto) {
+      var x = new XMLHttpRequest(), dato = false;
+      function esito(v) { if (!dato) { dato = true; fatto(v); } }
+      try {
+        x.open("GET", "http://127.0.0.1:" + porta + "/stato", true);
+        x.timeout = 2000;
+        x.onload = function () { var j = null; try { j = JSON.parse(x.responseText); } catch (e) {} esito(j); };
+        x.onerror = function () { esito(null); };
+        x.ontimeout = function () { esito(null); };
+        x.send();
+      } catch (e) { esito(null); }
+    }
+    function riga(porta, j) {
+      if (!j) { return "porta " + porta + ": nessuna risposta"; }
+      var g = j.guardiano || {};
+      var t = "porta " + porta + ": servizio v" + j.versione + ", guardiano " + (g.attivo ? "ATTIVO" : "fermo") +
+        ", PowerState " + (g.accensione || "?") + ", aperture " + (g.aperture || 0);
+      var reg = (g.registro || []).slice(-8);
+      if (reg.length) { t += "\n  " + reg.join("\n  "); }
+      return t;
+    }
+    function aggiorna() {
+      leggi(8187, function (a) {
+        leggi(8188, function (b) {
+          el.textContent = "DIAGNOSI GUARDIANO (tasto giallo: nascondi)\n" +
+            "schermata: " + (diagnosiApp.slice(-4).join(" | ") || "-") + "\n" +
+            riga(8187, a) + "\n" + riga(8188, b);
+        });
+      });
+    }
+    aggiorna();
+    setInterval(aggiorna, 5000);
+  }
+
   function avvia() {
-    if (DIRETTA) { setTimeout(assicuraGuardiano, 3000); }
+    if (DIRETTA) { setTimeout(assicuraGuardiano, 3000); pannelloDiagnosi(); }
     // Casa è di nuovo a schermo: il servizio può smettere di osservare l'app di prima.
     if (SULLA_TV && !DIRETTA) { chiediServizio("/osserva?stop=1", 3000).catch(function () {}); }
     scaricaJson(BASE + "config.json").then(function (config) {

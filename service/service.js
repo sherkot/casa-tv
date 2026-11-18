@@ -34,9 +34,9 @@
   var urlLib = require("url");
 
   var PORTA = 8187;
-  var VERSIONE = "5";
+  var VERSIONE = "6";
   // Tag con cui questo modulo è installato in TizenBrew: va aggiornato a ogni nuovo tag v….
-  var TAG_MODULO = "v0.7.0";
+  var TAG_MODULO = "v0.7.1";
   var CACHE_MS = 60000;
 
   var haTizen = typeof tizen !== "undefined" && !!tizen && !!tizen.application;
@@ -439,6 +439,20 @@
   var BATTITO_MS = 2000;
   var SALTO_MS = 15000;
   var guardiano = { ultimo: Date.now(), stato: null, rientro: false, inCorso: false, aperture: 0, ultimaApertura: 0, avvio: Date.now() };
+  var registro = [];
+  var mioGettone = { versione: VERSIONE };
+
+  /**
+   * Annota un evento del guardiano (al massimo gli ultimi 30), con l'ora.
+   * Il registro si legge da /stato e la schermata Casa lo mostra nel pannello
+   * di diagnosi: serve a capire cosa succede sulla TV quando la spegni e riaccendi.
+   */
+  function annota(testo) {
+    var d = new Date();
+    function due(n) { return (n < 10 ? "0" : "") + n; }
+    registro.push(due(d.getHours()) + ":" + due(d.getMinutes()) + ":" + due(d.getSeconds()) + " " + testo);
+    if (registro.length > 30) { registro.shift(); }
+  }
 
   /**
    * Restituisce un riassunto dello stato del guardiano, mostrato da /stato
@@ -446,7 +460,8 @@
    */
   function statoGuardiano() {
     return {
-      attivo: !!(typeof process !== "undefined" && process && process.__casaGuardiano),
+      attivo: !!(typeof process !== "undefined" && process && process.__casaGuardianoGettone === mioGettone),
+      registro: registro,
       accensione: guardiano.stato,
       aperture: guardiano.aperture,
       ultimaApertura: guardiano.ultimaApertura ? new Date(guardiano.ultimaApertura).toISOString() : null,
@@ -476,27 +491,48 @@
     guardiano.ultimaApertura = Date.now();
     guardiano.aperture++;
     smettiDiOsservare();
-    function lancia() { try { tizen.application.launch(ID_CASA, function () {}, function () {}); } catch (e) {} }
-    lancia();
-    setTimeout(function () {
-      chiediTv("/api/v2/applications/" + ID_CASA, function (j) {
-        if (j && j.visible === false) { lancia(); }
-      });
-    }, 4000);
+    var attese = [0, 2500, 5000, 9000, 14000, 20000];
+    var visto = false;
+    annota("riaccensione: apro Casa");
+    function lancia(n) {
+      try {
+        tizen.application.launch(ID_CASA, function () { annota("apertura " + n + " riuscita"); },
+          function (e) { annota("apertura " + n + " fallita: " + ((e && e.message) || "errore")); });
+      } catch (e) { annota("apertura " + n + " errore: " + e.message); }
+    }
+    // Riprova per circa 20 secondi: subito dopo il risveglio la TV può rimettere
+    // davanti l'ultima app usata. Smette appena la TV conferma che Casa è a schermo.
+    attese.forEach(function (ms, i) {
+      setTimeout(function () {
+        if (visto) { return; }
+        chiediTv("/api/v2/applications/" + ID_CASA, function (j) {
+          if (j && j.visible === true && i > 0) { visto = true; annota("Casa a schermo"); return; }
+          lancia(i + 1);
+        });
+      }, ms);
+    });
   }
 
   /**
    * Un controllo del guardiano, ogni 2 secondi.
    */
   function battitoGuardiano() {
+    if (process.__casaGuardianoGettone !== mioGettone) { return; }
     var ora = Date.now();
-    if (ora - guardiano.ultimo > SALTO_MS) { guardiano.rientro = true; }
+    if (ora - guardiano.ultimo > SALTO_MS) {
+      guardiano.rientro = true;
+      annota("risveglio dopo " + Math.round((ora - guardiano.ultimo) / 1000) + " s di pausa");
+    }
     guardiano.ultimo = ora;
     if (guardiano.inCorso) { return; }
     guardiano.inCorso = true;
     leggiAccensione(function (s) {
       guardiano.inCorso = false;
       var prima = guardiano.stato;
+      if (s !== guardiano.ultimoLetto) {
+        annota("PowerState: " + (s === null ? "non disponibile" : s));
+        guardiano.ultimoLetto = s;
+      }
       if (s) { guardiano.stato = s; }
       if (s === "standby") { return; }
       if ((s === "on" && prima === "standby") || guardiano.rientro) {
@@ -513,8 +549,15 @@
    */
   function avviaGuardiano() {
     if (typeof process === "undefined" || !process) { return; }
-    if (process.__casaGuardiano) { return; }
+    // Una versione più nuova prende il posto di una più vecchia (che smette da sola
+    // al battito successivo); una uguale o più vecchia non parte.
+    var attuale = process.__casaGuardianoGettone;
+    if (attuale && Number(attuale.versione) >= Number(VERSIONE)) { return; }
+    if (process.__casaGuardiano && Number(process.__casaGuardiano) >= Number(VERSIONE)) { return; }
+    process.__casaGuardianoGettone = mioGettone;
     process.__casaGuardiano = VERSIONE;
+    guardiano.ultimoLetto = undefined;
+    annota("guardiano avviato (versione " + VERSIONE + ")");
     setInterval(battitoGuardiano, BATTITO_MS);
   }
 
