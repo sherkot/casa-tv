@@ -59,7 +59,7 @@ Ogni widget accetta `area`: `sinistra`, `destra` o `basso`.
 2. GitHub Pages attivo sul ramo `main`, cartella `/docs`.
 3. In `app/index.html` sostituire `__GITHUB_USER__` con il proprio utente GitHub.
 4. Crea un tag di versione e pubblicalo (vedi "Aggiornare il modulo").
-5. Sulla TV: TizenBrew → gestione moduli (tasto verde) → aggiungi il modulo GitHub `UTENTE/casa-tv@vX.Y.Z`, con il tag dell'ultima versione (oggi `sherkot/casa-tv@v0.6.0`). Non usare `@main`.
+5. Sulla TV: TizenBrew → gestione moduli (tasto verde) → aggiungi il modulo GitHub `UTENTE/casa-tv@vX.Y.Z`, con il tag dell'ultima versione (oggi `sherkot/casa-tv@v0.7.0`). Non usare `@main`.
 6. In TizenBrew, nelle impostazioni, scegliere **Casa** come modulo ad avvio automatico.
 
 ## Aggiornare il modulo
@@ -71,6 +71,7 @@ Cosa serve, a seconda di cosa cambi:
 - **Solo `docs/`** (widget, `config.json`, stile): nessun tag. Aumenta `docs/version.json`, fai commit e push: GitHub Pages pubblica e la TV si aggiorna da sola entro 2 minuti.
 - **`service/`, `package.json` o `app/`**: serve un nuovo tag.
   1. Aumenta `version` in `package.json` (es. da `0.6.0` a `0.7.0`).
+     A ogni nuovo tag `v…` del modulo aggiorna anche `TAG_MODULO` in `service/service.js` e `MODULO_SERVIZIO` in `docs/app.js` con il nuovo tag.
   2. Fai commit e push su `main`.
   3. Crea il tag e pubblicalo:
      ```
