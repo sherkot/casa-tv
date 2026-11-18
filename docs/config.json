@@ -34,7 +34,8 @@
           "colore": "#8e0c13"
         },
         {
-          "nome": "Prime Video"
+          "nome": "Prime Video",
+          "colore": "#0f3a5c"
         },
         {
           "nome": "TizenTube",
@@ -57,7 +58,8 @@
           "nome": "Mediaset Infinity",
           "cerca": [
             "Infinity"
-          ]
+          ],
+          "etichetta": "Mediaset"
         }
       ]
     }

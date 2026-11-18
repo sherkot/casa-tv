@@ -17,9 +17,10 @@
  *   GET /app            → { app: [ { id, name, show, icona } ] }
  *   GET /apri?id=ID     → apre l'app indicata
  *   GET /icona?id=ID    → l'icona dell'app (immagine). Se la TV indica
- *                         l'icona generica (la "girandola" condivisa da più app)
- *                         o nessuna, il servizio cerca l'icona vera dentro la
- *                         cartella di installazione dell'app.
+ *                         l'icona generica (la "girandola", riconosciuta anche
+ *                         quando è copiata in più cartelle) o nessuna, il servizio
+ *                         cerca l'icona vera nella cartella dell'app e poi, per
+ *                         nome, nelle cartelle condivise della TV.
  */
 (function () {
   "use strict";
@@ -29,7 +30,7 @@
   var urlLib = require("url");
 
   var PORTA = 8187;
-  var VERSIONE = "2";
+  var VERSIONE = "3";
   var CACHE_MS = 60000;
 
   var haTizen = typeof tizen !== "undefined" && !!tizen && !!tizen.application;
@@ -37,6 +38,10 @@
   var cacheQuando = 0;
   var iconeTrovate = {};   // id app → percorso dell'icona scelta ("" se nessuna)
   var CARTELLE_APP = ["/opt/usr/globalapps/", "/usr/apps/", "/opt/usr/apps/", "/opt/usr/home/owner/apps_rw/"];
+  // Cartelle condivise in cui alcune app di sistema (es. Netflix) tengono le icone.
+  var CARTELLE_CONDIVISE = ["/opt/share", "/opt/usr/share", "/usr/share", "/opt/usr/home/owner/share",
+                            "/opt/usr/globalapps", "/usr/apps", "/opt/usr/apps", "/opt/usr/home/owner/apps_rw"];
+  var dimensioniGeneriche = {};  // dimensione in byte → true se è quella dell'icona generica
 
   /**
    * Invia una risposta JSON. Aggiunge l'intestazione CORS perché la pagina
@@ -89,7 +94,7 @@
         });
         iconeTrovate = {};
         cacheQuando = Date.now();
-        fatto(null, cache);
+        segnaIconeGeneriche(cache, function () { fatto(null, cache); });
       }, function (e) {
         fatto((e && e.message) || "errore getAppsInfo", []);
       });
@@ -142,7 +147,8 @@
               if (!e2 && st) {
                 if (st.isDirectory() && livello < 4 && !/node_modules|locale/i.test(nome)) {
                   esplora(pieno, livello + 1);
-                } else if (st.isFile() && /\.(png|jpe?g|webp)$/i.test(nome) && st.size > 1500 && st.size < 2000000) {
+                } else if (st.isFile() && /\.(png|jpe?g|webp)$/i.test(nome) && st.size > 1500 && st.size < 2000000 &&
+                           !dimensioniGeneriche[st.size]) {
                   var pt = punteggioIcona(pieno, st.size);
                   if (pt > punti) { punti = pt; migliore = pieno; }
                 }
@@ -168,6 +174,92 @@
   }
 
   /**
+   * Riconosce l'icona generica di Samsung (la "girandola"). La TV a volte la
+   * indica come stesso file per più app, a volte come copie identiche in
+   * cartelle diverse: per questo confronta anche la dimensione dei file.
+   * Se tre o più app indicano un file della stessa dimensione, quella
+   * dimensione è considerata "generica" e quelle icone vengono scartate.
+   * Al termine chiama fatto().
+   */
+  function segnaIconeGeneriche(lista, fatto) {
+    var conteggio = {}, daFare = 0, chiamato = false;
+    dimensioniGeneriche = {};
+    function fine() {
+      if (chiamato || daFare > 0) { return; }
+      chiamato = true;
+      Object.keys(conteggio).forEach(function (d) { if (conteggio[d] >= 3) { dimensioniGeneriche[d] = true; } });
+      lista.forEach(function (a) { if (a.dimIcona && dimensioniGeneriche[a.dimIcona]) { a.generica = true; } });
+      fatto();
+    }
+    lista.forEach(function (a) {
+      var f = String(a.iconPath || "").replace(/^file:\/\//, "");
+      if (!f) { return; }
+      daFare++;
+      fs.stat(f, function (e, st) {
+        if (!e && st && st.isFile()) {
+          a.dimIcona = st.size;
+          conteggio[st.size] = (conteggio[st.size] || 0) + 1;
+        }
+        daFare--;
+        fine();
+      });
+    });
+    fine();
+  }
+
+  /**
+   * Ultima possibilità: cerca nelle cartelle condivise della TV i file immagine
+   * il cui percorso contiene una delle parole indicate (es. "netflix").
+   * Ricerca limitata: 6 livelli, 30.000 elementi, 6 secondi. Sceglie il file
+   * con il punteggio migliore, scartando l'icona generica.
+   * Chiama fatto(percorso o null).
+   */
+  function cercaIconaPerNome(parole, fatto) {
+    parole = (parole || []).filter(function (p) { return p && p.length >= 4; });
+    if (!parole.length) { return fatto(null); }
+    var migliore = null, punti = -Infinity, inCorso = 0, visti = 0, chiuso = false;
+    var scadenza = Date.now() + 6000;
+    function forseFinito() { if (!chiuso && inCorso === 0) { chiuso = true; fatto(migliore); } }
+    function contieneParola(percorso) {
+      var n = percorso.toLowerCase().replace(/[^a-z0-9\/]/g, "");
+      for (var i = 0; i < parole.length; i++) { if (n.indexOf(parole[i]) !== -1) { return true; } }
+      return false;
+    }
+    function esplora(cartella, livello, trovato) {
+      if (visti > 30000 || Date.now() > scadenza) { return; }
+      inCorso++;
+      fs.readdir(cartella, function (err, nomi) {
+        if (!err && nomi) {
+          nomi.forEach(function (nome) {
+            if (nome.charAt(0) === ".") { return; }
+            visti++;
+            var pieno = cartella + "/" + nome;
+            var corrisponde = trovato || contieneParola(pieno);
+            inCorso++;
+            fs.stat(pieno, function (e2, st) {
+              if (!e2 && st) {
+                if (st.isDirectory() && livello < 6) {
+                  esplora(pieno, livello + 1, corrisponde);
+                } else if (st.isFile() && corrisponde && /\.(png|jpe?g|webp)$/i.test(nome) &&
+                           st.size > 1500 && st.size < 2000000 && !dimensioniGeneriche[st.size]) {
+                  var pt = punteggioIcona(pieno, st.size);
+                  if (pt > punti) { punti = pt; migliore = pieno; }
+                }
+              }
+              inCorso--;
+              forseFinito();
+            });
+          });
+        }
+        inCorso--;
+        forseFinito();
+      });
+    }
+    CARTELLE_CONDIVISE.forEach(function (r) { esplora(r, 0, false); });
+    forseFinito();
+  }
+
+  /**
    * Trova il file dell'icona di un'app: usa quello indicato dalla TV se esiste
    * e non è l'icona generica, altrimenti lo cerca nella cartella dell'app.
    * Ricorda il risultato per non ripetere la ricerca. Chiama fatto(percorso o null).
@@ -177,8 +269,15 @@
     var indicata = String(app.iconPath || "").replace(/^file:\/\//, "");
     function cerca() {
       cercaIconaNellaCartella(app.packageId, function (trovata) {
-        iconeTrovate[app.id] = trovata || "";
-        fatto(trovata || null);
+        if (trovata) { iconeTrovate[app.id] = trovata; return fatto(trovata); }
+        // Parole da cercare nei percorsi: nome dell'app senza spazi e simboli
+        // (es. "primevideo"), la sua prima parola (es. "netflix") e il pacchetto.
+        var nome = String(app.name || "").toLowerCase();
+        var parole = [nome.replace(/[^a-z0-9]/g, ""), nome.split(/[^a-z0-9]+/)[0], String(app.packageId || "").toLowerCase()];
+        cercaIconaPerNome(parole, function (perNome) {
+          iconeTrovate[app.id] = perNome || "";
+          fatto(perNome || null);
+        });
       });
     }
     if (!indicata || app.generica) { return cerca(); }
