@@ -45,6 +45,9 @@ jobs:
           TIZEN="${GITHUB_WORKSPACE}/tizen-studio/tools/ide/bin/tizen"
           PW="$(openssl rand -hex 12)"
           echo "::add-mask::${PW}"
+          # La CLI chiede la password in modo interattivo durante il "package":
+          # la rende disponibile al passo successivo (resta mascherata nei log).
+          echo "CASA_PW=${PW}" >> "$GITHUB_ENV"
           "$TIZEN" certificate -a casatv -p "$PW" -c IT -ct "Reggio Emilia" -o "Casa" -n "Casa TV" -f casa-author
           AUTHOR="$(find "$HOME" "$GITHUB_WORKSPACE" -name 'casa-author.p12' 2>/dev/null | head -1)"
           test -n "$AUTHOR" || { echo "Certificato autore non trovato"; exit 1; }
@@ -71,11 +74,21 @@ jobs:
       - name: Crea il pacchetto .wgt firmato
         working-directory: tv-app
         run: |
-          cat > package.exp <<EXP
+          # La CLI chiede le password del profilo anche se sono in profiles.xml:
+          # expect risponde alle domande e restituisce il codice di uscita della CLI.
+          cat > package.exp <<'EXP'
           #!/usr/bin/expect -f
-          set timeout 300
-          spawn ${GITHUB_WORKSPACE}/tizen-studio/tools/ide/bin/tizen package -t wgt -o ./release -s CasaOld -- .buildResult
-          expect eof
+          set timeout 600
+          spawn $env(GITHUB_WORKSPACE)/tizen-studio/tools/ide/bin/tizen package -t wgt -o ./release -s CasaOld -- .buildResult
+          expect {
+            -nocase "author password:" { send -- "$env(CASA_PW)\r"; exp_continue }
+            -nocase "distributor password:" { send -- "tizenpkcs12passfordsigner\r"; exp_continue }
+            -re {Yes: \(Y\), No: \(N\) \?} { send -- "N\r"; exp_continue }
+            timeout { puts "\nTimeout in tizen package"; exit 1 }
+            eof
+          }
+          catch wait risultato
+          exit [lindex $risultato 3]
           EXP
           sed -i 's/^          //' package.exp
           expect ./package.exp
