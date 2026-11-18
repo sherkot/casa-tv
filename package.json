@@ -1,7 +1,7 @@
 {
   "name": "casa-tv",
   "appName": "Casa",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Schermata Casa per la TV Samsung: orologio, meteo e widget personali.",
   "packageType": "app",
   "appPath": "app/index.html",

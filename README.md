@@ -41,6 +41,10 @@ Le icone sono quelle installate sulla TV. Se la TV indica l'icona generica di Sa
 2. In `docs/config.json` aggiungi una voce alla lista `app`, per esempio `{ "nome": "DAZN" }`.
 3. Aumenta di 1 il numero in `docs/version.json` e pubblica: entro 2 minuti la TV si aggiorna da sola.
 
+## Ritorno a Casa
+
+Quando apri un'app dalla schermata, il servizio la osserva: appena la chiudi, riapre TizenBrew, che riparte su Casa. Se invece hai spento la TV, non riapre niente. Con "Esegui automaticamente l'ultima applicazione" attivo nelle impostazioni della TV, alla riaccensione si ritrova Casa.
+
 ## Telecomando
 
 - Frecce: spostano il riquadro evidenziato. OK: apre l'app.

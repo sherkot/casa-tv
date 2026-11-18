@@ -493,7 +493,8 @@
   function apriApp(id, nome) {
     if (!SULLA_TV) { avviso("Sulla TV qui si aprirebbe " + nome); return; }
     avviso("Apro " + nome + "…");
-    chiediServizio("/apri?id=" + encodeURIComponent(id), 8000).catch(function (e) {
+    // torna=1: quando chiudi l'app, il servizio riporta la TV su Casa.
+    chiediServizio("/apri?id=" + encodeURIComponent(id) + "&torna=1", 8000).catch(function (e) {
       avviso("Non riesco ad aprire " + nome + ": " + e.message);
     });
   }
@@ -537,6 +538,9 @@
       }
       if (!modulo) { return fine("modulo «" + cercato + "» non installato in TizenBrew"); }
       ws.send(JSON.stringify({ type: 5, payload: modulo }));
+      // Il modulo prende la finestra di TizenBrew: chiede al servizio di
+      // riaprire TizenBrew (e quindi Casa) quando il modulo verrà chiuso.
+      chiediServizio("/osserva?self=1", 3000).catch(function () {});
       if (!modulo.evaluateScriptOnDocumentStart) { clearTimeout(timer); location.href = modulo.appPath; }
     };
   }
@@ -676,6 +680,8 @@
    * avvia il meteo (ogni 15 minuti) e il controllo delle nuove versioni.
    */
   function avvia() {
+    // Casa è di nuovo a schermo: il servizio può smettere di osservare l'app di prima.
+    if (SULLA_TV) { chiediServizio("/osserva?stop=1", 3000).catch(function () {}); }
     scaricaJson(BASE + "config.json").then(function (config) {
       (config.widgets || []).forEach(function (voce) {
         var fn = WIDGET[voce.tipo];

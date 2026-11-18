@@ -15,7 +15,11 @@
  * Indirizzi:
  *   GET /stato          → { ok, versione, tizen }
  *   GET /app            → { app: [ { id, name, show, icona } ] }
- *   GET /apri?id=ID     → apre l'app indicata
+ *   GET /apri?id=ID     → apre l'app indicata; con &torna=1 riapre Casa quando
+ *                         l'app viene chiusa
+ *   GET /osserva?self=1 → riapre Casa quando si chiude TizenBrew stesso (serve
+ *                         quando Casa passa la finestra a TizenTube)
+ *   GET /osserva?stop=1 → Casa è di nuovo a schermo: smette di osservare
  *   GET /icona?id=ID    → l'icona dell'app (immagine). Se la TV indica
  *                         l'icona generica (la "girandola", riconosciuta anche
  *                         quando è copiata in più cartelle) o nessuna, il servizio
@@ -30,7 +34,7 @@
   var urlLib = require("url");
 
   var PORTA = 8187;
-  var VERSIONE = "3";
+  var VERSIONE = "4";
   var CACHE_MS = 60000;
 
   var haTizen = typeof tizen !== "undefined" && !!tizen && !!tizen.application;
@@ -39,9 +43,8 @@
   var iconeTrovate = {};   // id app → percorso dell'icona scelta ("" se nessuna)
   var CARTELLE_APP = ["/opt/usr/globalapps/", "/usr/apps/", "/opt/usr/apps/", "/opt/usr/home/owner/apps_rw/"];
   // Cartelle condivise in cui alcune app di sistema (es. Netflix) tengono le icone.
-  // Esclusa di proposito la cartella "share" nella home dell'utente, che può
-  // contenere file personali: /icona è raggiungibile senza Origin e non deve
-  // poterli servire.
+  // Esclusa di proposito la cartella dei dati dell'utente della TV: lì non ci sono
+  // icone di app e non deve essere letta.
   var CARTELLE_CONDIVISE = ["/opt/share", "/opt/usr/share", "/usr/share",
                             "/opt/usr/globalapps", "/usr/apps", "/opt/usr/apps", "/opt/usr/home/owner/apps_rw"];
   var dimensioniGeneriche = {};  // dimensione in byte → true se è quella dell'icona generica
@@ -290,6 +293,130 @@
     });
   }
 
+  /* ---------------------------------------------------------------------
+   * Ritorno a Casa quando si chiude un'app
+   * --------------------------------------------------------------------- */
+
+  var osservata = null;      // { id, visto, assenze, inizio, inCorso }
+  var timerOsserva = null;
+  var OSSERVA_OGNI = 600;    // millisecondi tra un controllo e l'altro
+  var OSSERVA_MAX = 8 * 3600 * 1000;
+
+  /**
+   * Restituisce l'ID dell'app TizenBrew (quella che, riaperta, fa ripartire
+   * Casa grazie all'avvio automatico), cercandola nell'elenco delle app.
+   */
+  function idTizenBrew() {
+    var lista = cache || [];
+    for (var i = 0; i < lista.length; i++) {
+      if (/tizenbrew/i.test(lista[i].id) && !/service/i.test(lista[i].id)) { return lista[i].id; }
+    }
+    return "xvvl3S1bvH.TizenBrewStandalone";
+  }
+
+  /**
+   * Interroga l'API locale della TV (porta 8001, la stessa usata per
+   * leggere i dati della TV) e restituisce il corpo JSON, oppure null.
+   */
+  function chiediTv(percorso, fatto) {
+    var finito = false;
+    function fine(dati) { if (!finito) { finito = true; fatto(dati); } }
+    var t = setTimeout(function () { fine(null); }, 1500);
+    try {
+      http.get({ host: "127.0.0.1", port: 8001, path: percorso }, function (res) {
+        var corpo = "";
+        res.on("data", function (c) { corpo += c; });
+        res.on("end", function () {
+          clearTimeout(t);
+          var j = null;
+          try { j = JSON.parse(corpo); } catch (e) {}
+          fine(res.statusCode === 200 ? j : null);
+        });
+      }).on("error", function () { clearTimeout(t); fine(null); });
+    } catch (e) { clearTimeout(t); fine(null); }
+  }
+
+  /**
+   * Dice se l'app osservata è ancora a schermo. Prima chiede alla TV se è
+   * "visible" (molte app quando le chiudi si nascondono soltanto); se la TV
+   * non lo sa, guarda se l'app è ancora in esecuzione. Chiama fatto(true/false).
+   */
+  function appAncoraAperta(id, fatto) {
+    var app = trovaPerId(cache || [], id);
+    var candidati = [id];
+    if (app && app.packageId && candidati.indexOf(app.packageId) < 0) { candidati.push(app.packageId); }
+    (function prova(i) {
+      if (i >= candidati.length) {
+        try {
+          tizen.application.getAppsContext(function (contesti) {
+            for (var k = 0; k < contesti.length; k++) { if (contesti[k].appId === id) { return fatto(true); } }
+            fatto(false);
+          }, function () { fatto(true); });
+        } catch (e) { fatto(true); }
+        return;
+      }
+      chiediTv("/api/v2/applications/" + encodeURIComponent(candidati[i]), function (j) {
+        if (j && typeof j.visible === "boolean") { return fatto(j.visible); }
+        prova(i + 1);
+      });
+    })(0);
+  }
+
+  /**
+   * Smette di osservare (Casa è tornata, TV spenta, tempo scaduto).
+   */
+  function smettiDiOsservare() {
+    osservata = null;
+    if (timerOsserva) { clearInterval(timerOsserva); timerOsserva = null; }
+  }
+
+  /**
+   * Riapre TizenBrew (che riparte su Casa), ma solo se la TV è accesa:
+   * se l'app è sparita perché hai spento la TV, non deve riaccendersi da sola.
+   */
+  function tornaACasa() {
+    smettiDiOsservare();
+    chiediTv("/api/v2/", function (j) {
+      var accesa = !j || !j.device || !j.device.PowerState || j.device.PowerState === "on";
+      if (!accesa) { return; }
+      try { tizen.application.launch(idTizenBrew(), function () {}, function () {}); } catch (e) {}
+    });
+  }
+
+  /**
+   * Un controllo dell'osservazione: appena l'app risulta aperta la segna come
+   * "vista"; dopo, se risulta chiusa per due controlli di fila, torna a Casa.
+   */
+  function controllaOsservata() {
+    if (!osservata) { return smettiDiOsservare(); }
+    if (Date.now() - osservata.inizio > OSSERVA_MAX) { return smettiDiOsservare(); }
+    if (osservata.inCorso) { return; }
+    osservata.inCorso = true;
+    var o = osservata;
+    appAncoraAperta(o.id, function (aperta) {
+      o.inCorso = false;
+      if (osservata !== o) { return; }
+      if (aperta) { o.visto = true; o.assenze = 0; return; }
+      if (!o.visto) {
+        // L'app non è ancora comparsa: dopo 30 secondi rinuncia.
+        if (Date.now() - o.inizio > 30000) { smettiDiOsservare(); }
+        return;
+      }
+      o.assenze++;
+      if (o.assenze >= 2) { tornaACasa(); }
+    });
+  }
+
+  /**
+   * Inizia a osservare un'app: quando verrà chiusa, la TV tornerà su Casa.
+   */
+  function osserva(id) {
+    smettiDiOsservare();
+    if (!id || !/^[A-Za-z0-9_.-]{3,80}$/.test(id)) { return; }
+    osservata = { id: id, visto: false, assenze: 0, inizio: Date.now(), inCorso: false };
+    timerOsserva = setInterval(controllaOsservata, OSSERVA_OGNI);
+  }
+
   var server = http.createServer(function (req, res) {
     var u = urlLib.parse(req.url, true);
     var percorso = u.pathname;
@@ -317,6 +444,7 @@
       if (!haTizen) { return invia(res, 500, { errore: "API tizen non disponibile" }); }
       try {
         tizen.application.launch(id, function () {
+          if (u.query.torna === "1") { osserva(id); }
           invia(res, 200, { ok: true });
         }, function (e) {
           invia(res, 500, { errore: (e && e.message) || "apertura non riuscita" });
@@ -325,6 +453,13 @@
         invia(res, 500, { errore: e.message });
       }
       return;
+    }
+
+    if (percorso === "/osserva") {
+      if (!origineAmmessa(req)) { return invia(res, 403, { errore: "origine non ammessa" }); }
+      if (u.query.stop === "1") { smettiDiOsservare(); }
+      if (u.query.self === "1") { osserva(idTizenBrew()); }
+      return invia(res, 200, { osservata: osservata ? osservata.id : null });
     }
 
     if (percorso === "/icona") {
