@@ -1,0 +1,126 @@
+/* Schermata Casa — pensata per 1920x1080, vista dal divano.
+   Testi grandi, contrasto alto, margini ampi (le TV a volte tagliano i bordi). */
+
+:root {
+  --sfondo: #0b0f17;
+  --sfondo-2: #121a29;
+  --scheda: rgba(255, 255, 255, 0.045);
+  --bordo: rgba(255, 255, 255, 0.07);
+  --testo: #eef1f6;
+  --tenue: #8d97a9;
+  --sole: #f6bd4a;
+  --pioggia: #62aaff;
+  --caldo: #ff8a5c;
+  --freddo: #7cc4ff;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: var(--sfondo);
+  background-image: radial-gradient(1200px 800px at 85% -10%, #1b2a44 0%, rgba(27, 42, 68, 0) 60%),
+                    linear-gradient(180deg, var(--sfondo) 0%, var(--sfondo-2) 100%);
+  color: var(--testo);
+  font-family: "SamsungOne", "Samsung Sans", "Roboto", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#schermo {
+  width: 1920px;
+  height: 1080px;
+  padding: 72px 96px 64px;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  grid-template-rows: 1fr auto;
+  grid-template-areas:
+    "sinistra destra"
+    "basso basso";
+  grid-gap: 40px 56px;
+}
+
+#area-sinistra { grid-area: sinistra; }
+#area-destra   { grid-area: destra; }
+#area-basso    { grid-area: basso; }
+
+.area { display: flex; flex-direction: column; min-height: 0; }
+.area > .widget + .widget { margin-top: 36px; }
+
+.widget { position: relative; }
+.scheda {
+  background: var(--scheda);
+  border: 1px solid var(--bordo);
+  border-radius: 28px;
+  padding: 36px 44px;
+}
+.etichetta {
+  font-size: 24px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tenue);
+  margin: 0 0 14px;
+}
+.numeri { font-variant-numeric: tabular-nums; }
+
+/* ---------- Orologio ---------- */
+.w-orologio .saluto { font-size: 34px; color: var(--tenue); margin: 0; }
+.w-orologio .ora {
+  font-size: 250px;
+  font-weight: 200;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  margin: 6px 0 10px -8px;
+}
+.w-orologio .data { font-size: 46px; font-weight: 300; margin: 0; }
+.w-orologio .data::first-letter { text-transform: uppercase; }
+
+/* ---------- Nota ---------- */
+.w-nota { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.w-nota .testo { font-size: 40px; line-height: 1.35; margin: 0; font-weight: 300; }
+
+/* ---------- Meteo attuale ---------- */
+.w-meteo { flex: 1; display: flex; flex-direction: column; }
+.w-meteo .riga { display: flex; align-items: center; }
+.w-meteo .icona-grande { width: 190px; height: 190px; margin-right: 28px; flex: none; }
+.w-meteo .temp { font-size: 150px; font-weight: 200; line-height: 1; letter-spacing: -0.03em; }
+.w-meteo .descr { font-size: 42px; margin: 8px 0 0; }
+.w-meteo .citta { font-size: 28px; color: var(--tenue); margin: 4px 0 0; }
+.w-meteo .dettagli { display: flex; margin-top: 26px; font-size: 28px; color: var(--tenue); }
+.w-meteo .dettagli span + span { margin-left: 40px; }
+.w-meteo .dettagli b { color: var(--testo); font-weight: 400; }
+.w-meteo .ore {
+  display: flex;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 26px;
+  border-top: 1px solid var(--bordo);
+}
+.w-meteo .ora-col { text-align: center; width: 110px; }
+.w-meteo .ora-col .h { font-size: 24px; color: var(--tenue); }
+.w-meteo .ora-col svg { width: 56px; height: 56px; margin: 8px 0 4px; }
+.w-meteo .ora-col .t { font-size: 30px; }
+.w-meteo .ora-col .p { font-size: 20px; color: var(--pioggia); height: 24px; }
+
+/* ---------- Previsioni giornaliere ---------- */
+.w-previsioni .giorni { display: flex; justify-content: space-between; }
+.w-previsioni .giorno { flex: 1; text-align: center; }
+.w-previsioni .giorno + .giorno { border-left: 1px solid var(--bordo); }
+.w-previsioni .nome { font-size: 28px; color: var(--tenue); }
+.w-previsioni .nome.oggi { color: var(--testo); }
+.w-previsioni svg { width: 72px; height: 72px; margin: 10px 0 6px; }
+.w-previsioni .max { font-size: 34px; }
+.w-previsioni .min { font-size: 34px; color: var(--tenue); margin-left: 14px; }
+.w-previsioni .p { font-size: 22px; color: var(--pioggia); margin-top: 4px; height: 28px; }
+
+/* ---------- Stato / errori ---------- */
+.vuoto { font-size: 30px; color: var(--tenue); }
+.aggiornato {
+  position: absolute;
+  right: 96px;
+  bottom: 22px;
+  font-size: 18px;
+  color: rgba(141, 151, 169, 0.6);
+}
