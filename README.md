@@ -100,6 +100,8 @@ Il workflow installa Tizen Studio, firma l'app e pubblica `Casa.wgt` in una rele
 
 **Aggiornamento.** Il workflow crea un certificato autore nuovo a ogni esecuzione. La TV può quindi rifiutare una versione nuova firmata con un certificato diverso: in quel caso disinstalla prima la versione vecchia dell'app Casa, poi installa la nuova.
 
+**Dalla 1.1.0** l'app ha `background-support` attivo (e `multitasking.support`): resta in esecuzione in sottofondo mentre usi un'altra app e contiene il guardiano dell'accensione, che riporta Casa davanti quando riaccendi la TV. Per passare dalla 1.0.x alla 1.1.0 **disinstalla prima la versione vecchia dalla TV**, poi installa la nuova con il TizenBrew Installer.
+
 ## Prova dal computer
 
 ```
