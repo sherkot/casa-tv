@@ -7,8 +7,8 @@ orologio, meteo di Reggio Emilia, promemoria e previsioni dei prossimi giorni.
 
 | Parte | Cosa fa | Si modifica? |
 |---|---|---|
-| `package.json` | Manifesto del modulo TizenBrew (`packageType: app`, `serviceFile`) | Quasi mai |
-| `service/service.js` | Servizio che TizenBrew esegue nel suo Node: la pagina del modulo non ha le API della TV, il servizio sì. Ascolta solo su `127.0.0.1:8187` e serve elenco app, apertura app e icone | Raramente (ES5, Node 4) |
+| `package.json` | Manifesto del modulo TizenBrew (`packageType: app`, `serviceFile`) | Quasi mai. Ogni modifica richiede un nuovo tag (vedi "Aggiornare il modulo") |
+| `service/service.js` | Servizio che TizenBrew esegue nel suo Node: la pagina del modulo non ha le API della TV, il servizio sì. Ascolta solo su `127.0.0.1:8187` e serve elenco app, apertura app e icone | Raramente (ES5, Node 4). Ogni modifica richiede un nuovo tag |
 | `app/index.html` | Caricatore: scarica da GitHub Pages `avvio.js`, che inserisce nella pagina struttura (`corpo.html`), stile e widget. Così la schermata gira dentro il modulo e può aprire app e ricevere i tasti | No, solo `REMOTE_BASE` la prima volta |
 | `docs/config.json` | Quali widget mostrare, in che area e con che testi | **Sì, qui si cambia la schermata** |
 | `docs/app.js` | Codice dei widget (registro `WIDGET`) | Per aggiungere widget nuovi |
@@ -58,8 +58,29 @@ Ogni widget accetta `area`: `sinistra`, `destra` o `basso`.
 1. Repository **pubblico** su GitHub chiamato `casa-tv` (TizenBrew e GitHub Pages leggono solo repository pubblici).
 2. GitHub Pages attivo sul ramo `main`, cartella `/docs`.
 3. In `app/index.html` sostituire `__GITHUB_USER__` con il proprio utente GitHub.
-4. Sulla TV: TizenBrew → gestione moduli (tasto verde) → aggiungi il modulo GitHub `UTENTE/casa-tv@main`.
-5. In TizenBrew, nelle impostazioni, scegliere **Casa** come modulo ad avvio automatico.
+4. Crea un tag di versione e pubblicalo (vedi "Aggiornare il modulo").
+5. Sulla TV: TizenBrew → gestione moduli (tasto verde) → aggiungi il modulo GitHub `UTENTE/casa-tv@vX.Y.Z`, con il tag dell'ultima versione (oggi `sherkot/casa-tv@v0.6.0`). Non usare `@main`.
+6. In TizenBrew, nelle impostazioni, scegliere **Casa** come modulo ad avvio automatico.
+
+## Aggiornare il modulo
+
+TizenBrew scarica i file del modulo (`package.json`, `service/`, `app/`) da jsDelivr. Con `@main` jsDelivr può continuare per ore a servire un commit vecchio anche dopo aver svuotato la cache. Un tag invece è fisso: `@v0.6.0` restituisce sempre i file di quel commit.
+
+Cosa serve, a seconda di cosa cambi:
+
+- **Solo `docs/`** (widget, `config.json`, stile): nessun tag. Aumenta `docs/version.json`, fai commit e push: GitHub Pages pubblica e la TV si aggiorna da sola entro 2 minuti.
+- **`service/`, `package.json` o `app/`**: serve un nuovo tag.
+  1. Aumenta `version` in `package.json` (es. da `0.6.0` a `0.7.0`).
+  2. Fai commit e push su `main`.
+  3. Crea il tag e pubblicalo:
+     ```
+     git tag -a v0.7.0 -m "Casa 0.7.0"
+     git push origin v0.7.0
+     ```
+  4. Controlla che jsDelivr lo serva: `https://cdn.jsdelivr.net/gh/UTENTE/casa-tv@v0.7.0/package.json`.
+  5. Sulla TV, in TizenBrew, sostituisci il modulo con `UTENTE/casa-tv@v0.7.0` e riavvia TizenBrew.
+
+Non spostare né riutilizzare un tag già pubblicato: jsDelivr lo tiene in cache per sempre. Per una correzione crea il tag successivo (es. `v0.7.1`).
 
 ## Prova dal computer
 
