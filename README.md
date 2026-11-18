@@ -7,7 +7,8 @@ orologio, meteo di Reggio Emilia, promemoria e previsioni dei prossimi giorni.
 
 | Parte | Cosa fa | Si modifica? |
 |---|---|---|
-| `package.json` | Manifesto del modulo TizenBrew (`packageType: app`) | Quasi mai |
+| `package.json` | Manifesto del modulo TizenBrew (`packageType: app`, `serviceFile`) | Quasi mai |
+| `service/service.js` | Servizio che TizenBrew esegue nel suo Node: la pagina del modulo non ha le API della TV, il servizio sì. Ascolta solo su `127.0.0.1:8187` e serve elenco app, apertura app e icone | Raramente (ES5, Node 4) |
 | `app/index.html` | Caricatore: scarica da GitHub Pages `avvio.js`, che inserisce nella pagina struttura (`corpo.html`), stile e widget. Così la schermata gira dentro il modulo e può aprire app e ricevere i tasti | No, solo `REMOTE_BASE` la prima volta |
 | `docs/config.json` | Quali widget mostrare, in che area e con che testi | **Sì, qui si cambia la schermata** |
 | `docs/app.js` | Codice dei widget (registro `WIDGET`) | Per aggiungere widget nuovi |
@@ -22,7 +23,19 @@ La TV controlla `docs/version.json` ogni 2 minuti: quando il numero cambia, rica
 - `meteo`: meteo adesso più una striscia in basso. Con `"striscia": "giorni"` mostra i prossimi giorni (`giorni`, default 5), altrimenti le prossime ore (`passoOre`, default 2; `quanteOre`, default 6).
 - `previsioni`: prossimi giorni. Opzione: `giorni` (default 6).
 - `nota`: testo libero. Opzioni: `titolo`, `testo`.
-- `app`: riga di app da aprire col telecomando. Opzioni: `titolo`, `app` (lista di `{ "nome": "...", "id": "facoltativo", "colore": "facoltativo" }`). L'app si cerca per nome tra quelle installate; l'ID serve solo se il nome è ambiguo.
+- `app`: riga di app da aprire col telecomando. Opzioni: `titolo`, `app`, una lista in cui ogni voce ha:
+  - `nome`: il nome dell'app come appare sulla TV (obbligatorio);
+  - `etichetta`: testo del riquadro, se diverso dal nome;
+  - `cerca`: nomi alternativi da provare, es. `["NOW TV", "NOWTV"]`;
+  - `id`: ID esatto, solo se il nome è ambiguo (tasto blu per l'elenco);
+  - `modulo`: apre un modulo TizenBrew invece di un'app, es. `"tizentube"`;
+  - `colore`: colore di sfondo del riquadro.
+
+### Aggiungere un'app
+
+1. Sulla TV, nella schermata Casa, premi il tasto blu e leggi il nome esatto dell'app.
+2. In `docs/config.json` aggiungi una voce alla lista `app`, per esempio `{ "nome": "DAZN" }`.
+3. Aumenta di 1 il numero in `docs/version.json` e pubblica: entro 2 minuti la TV si aggiorna da sola.
 
 ## Telecomando
 

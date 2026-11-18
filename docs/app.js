@@ -289,10 +289,13 @@
 
     /**
      * Riga di app da aprire con il telecomando.
-     * In config.json ogni app si indica per "nome" (come appare sulla TV); la TV
-     * cerca da sola l'ID giusto tra le app installate. Se il nome è ambiguo
-     * si può forzare l'ID con "id" (l'elenco completo si vede col tasto blu).
-     * Opzioni della voce: "titolo" e "app" (lista di { nome, id?, colore? }).
+     * In config.json ogni app si indica per "nome" (come appare sulla TV): la TV
+     * cerca da sola l'ID giusto tra le app installate. Altre opzioni per ogni app:
+     *  - "etichetta": testo mostrato nel riquadro, se diverso dal nome;
+     *  - "cerca": lista di nomi alternativi da provare (es. ["NOW", "NOW TV"]);
+     *  - "id": forza l'ID esatto (l'elenco completo si vede col tasto blu);
+     *  - "modulo": apre un modulo di TizenBrew invece di un'app (es. "tizentube");
+     *  - "colore": colore di sfondo del riquadro.
      */
     app: function (voce) {
       var el = creaContenitore(voce.area || "basso", "app", false);
@@ -302,25 +305,27 @@
 
       elencoAppInstallate().then(function (installate) {
         (voce.app || []).forEach(function (a) {
-          var trovata = cercaApp(installate, a);
+          var trovata = a.modulo ? { modulo: a.modulo } : cercaApp(installate, a);
+          var testo = a.etichetta || a.nome;
           var r = document.createElement("div");
           r.className = "riquadro tasto" + (trovata ? "" : " assente");
           if (a.colore) { r.style.background = a.colore; }
           var nome = document.createElement("div");
           nome.className = "nome-app";
-          nome.textContent = a.nome;
+          nome.textContent = testo;
           if (trovata && trovata.iconPath) {
             var img = document.createElement("img");
-            img.src = trovata.iconPath.charAt(0) === "/" ? "file://" + trovata.iconPath : trovata.iconPath;
-            img.onerror = function () { img.parentNode && img.parentNode.removeChild(img); r.className += " senza-icona"; };
+            img.src = trovata.iconPath;
+            img.onerror = function () { if (img.parentNode) { img.parentNode.removeChild(img); } r.className += " senza-icona"; };
             r.appendChild(img);
           } else {
             r.className += " senza-icona";
           }
           r.appendChild(nome);
           r.attivare = function () {
-            if (!trovata) { avviso("Non trovo «" + a.nome + "» tra le app della TV (tasto blu per l'elenco)"); return; }
-            apriApp(trovata.id, a.nome);
+            if (!trovata) { avviso("Non trovo «" + testo + "» tra le app della TV (tasto blu per l'elenco)"); return; }
+            if (trovata.modulo) { apriModulo(trovata.modulo, testo); return; }
+            apriApp(trovata.id, testo);
           };
           contenitore.appendChild(r);
         });
@@ -388,21 +393,56 @@
    * App della TV: elenco, ricerca per nome, apertura
    * ===================================================================== */
 
+  /* Indirizzo del servizio del modulo (service/service.js), attivo solo sulla TV. */
+  var SERVIZIO = "http://127.0.0.1:8187";
+  var SULLA_TV = location.hostname === "127.0.0.1" && location.port === "8081";
+
   /**
-   * Restituisce (in una Promise) l'elenco delle app installate sulla TV,
-   * ognuna con id, name e iconPath. Fuori dalla TV (anteprima sul computer)
-   * restituisce un elenco finto con qualche app comune.
+   * Chiede una risposta JSON al servizio del modulo, con un limite di tempo.
+   * Restituisce una Promise che fallisce se il servizio non risponde.
+   */
+  function chiediServizio(percorso, attesaMs) {
+    return new Promise(function (ok, ko) {
+      var x = new XMLHttpRequest();
+      x.open("GET", SERVIZIO + percorso, true);
+      x.timeout = attesaMs || 4000;
+      x.onload = function () {
+        var dati = null;
+        try { dati = JSON.parse(x.responseText); } catch (e) {}
+        if (x.status >= 200 && x.status < 300) { ok(dati); } else { ko(new Error((dati && dati.errore) || ("HTTP " + x.status))); }
+      };
+      x.onerror = function () { ko(new Error("servizio non raggiungibile")); };
+      x.ontimeout = function () { ko(new Error("servizio lento")); };
+      x.send();
+    });
+  }
+
+  /**
+   * Restituisce (in una Promise) l'elenco delle app installate sulla TV, ognuna
+   * con id, name e iconPath (indirizzo dell'icona servita dal servizio).
+   * Sulla TV il servizio parte insieme al modulo e può metterci qualche secondo:
+   * per questo riprova fino a 6 volte. Fuori dalla TV restituisce un elenco finto.
    */
   function elencoAppInstallate() {
-    return new Promise(function (ok) {
-      try {
-        if (window.tizen && tizen.application && tizen.application.getAppsInfo) {
-          tizen.application.getAppsInfo(function (lista) { ok(lista || []); }, function () { ok([]); });
-          return;
-        }
-      } catch (e) {}
-      ok(["YouTube", "Netflix", "Prime Video", "Disney+", "RaiPlay", "Mediaset Infinity", "DAZN", "TizenBrew"]
+    if (!SULLA_TV) {
+      return Promise.resolve(["Netflix", "Prime Video", "Disney+", "RaiPlay", "Mediaset Infinity", "NOW", "YouTube", "TizenBrew"]
         .map(function (n, i) { return { id: "finto." + i, name: n, iconPath: "" }; }));
+    }
+    return new Promise(function (ok) {
+      var tentativi = 0;
+      function prova() {
+        tentativi++;
+        chiediServizio("/app", 5000).then(function (r) {
+          ok(((r && r.app) || []).map(function (a) {
+            return { id: a.id, name: a.name, show: a.show, iconPath: a.icona ? SERVIZIO + "/icona?id=" + encodeURIComponent(a.id) : "" };
+          }));
+        }).catch(function (e) {
+          if (tentativi < 6) { setTimeout(prova, 1500); return; }
+          avviso("Il servizio di Casa non risponde: " + e.message);
+          ok([]);
+        });
+      }
+      prova();
     });
   }
 
@@ -414,38 +454,79 @@
 
   /**
    * Cerca un'app nell'elenco delle installate: prima per ID esatto (se indicato),
-   * poi per nome identico, infine per nome che contiene quello cercato.
-   * Restituisce l'app trovata oppure null.
+   * poi per nome identico (provando anche i nomi alternativi in "cerca"),
+   * infine per nome che contiene quello cercato. Restituisce l'app o null.
    */
   function cercaApp(installate, voce) {
-    var i;
+    var i, k;
     if (voce.id) {
       for (i = 0; i < installate.length; i++) { if (installate[i].id === voce.id) { return installate[i]; } }
     }
-    var cercato = normalizza(voce.nome);
-    for (i = 0; i < installate.length; i++) { if (normalizza(installate[i].name) === cercato) { return installate[i]; } }
-    for (i = 0; i < installate.length; i++) {
-      if (cercato && normalizza(installate[i].name).indexOf(cercato) !== -1) { return installate[i]; }
+    var nomi = [voce.nome].concat(voce.cerca || []).map(normalizza).filter(function (n) { return n; });
+    for (k = 0; k < nomi.length; k++) {
+      for (i = 0; i < installate.length; i++) { if (normalizza(installate[i].name) === nomi[k]) { return installate[i]; } }
+    }
+    for (k = 0; k < nomi.length; k++) {
+      for (i = 0; i < installate.length; i++) {
+        if (normalizza(installate[i].name).indexOf(nomi[k]) !== -1) { return installate[i]; }
+      }
     }
     return null;
   }
 
   /**
-   * Apre un'app della TV dato il suo ID. Fuori dalla TV mostra solo un avviso.
+   * Apre un'app della TV dato il suo ID, passando dal servizio del modulo.
+   * Fuori dalla TV mostra solo un avviso.
    */
   function apriApp(id, nome) {
-    try {
-      if (window.tizen && tizen.application) {
-        tizen.application.launch(id, function () {}, function (e) {
-          avviso("Non riesco ad aprire " + nome + ": " + (e && e.message ? e.message : "errore"));
-        });
-        return;
-      }
-    } catch (e) {
-      avviso("Errore aprendo " + nome + ": " + e.message);
-      return;
+    if (!SULLA_TV) { avviso("Sulla TV qui si aprirebbe " + nome); return; }
+    avviso("Apro " + nome + "…");
+    chiediServizio("/apri?id=" + encodeURIComponent(id), 8000).catch(function (e) {
+      avviso("Non riesco ad aprire " + nome + ": " + e.message);
+    });
+  }
+
+  /**
+   * Apre un modulo di TizenBrew (per esempio TizenTube) nella stessa finestra,
+   * come fa l'elenco dei moduli di TizenBrew: chiede la lista dei moduli al
+   * servizio di TizenBrew (WebSocket su 127.0.0.1:8081), comunica quale modulo
+   * sta partendo (così TizenBrew inietta il suo codice, es. il blocco pubblicità)
+   * e poi passa all'indirizzo del modulo.
+   * "cercato" è una parte del nome del modulo, es. "tizentube".
+   */
+  function apriModulo(cercato, nome) {
+    if (!SULLA_TV) { avviso("Sulla TV qui si aprirebbe " + nome); return; }
+    var re = new RegExp(cercato, "i");
+    var ws, modulo = null, chiesto = 0, finito = false;
+    var timer = setTimeout(function () { fine("TizenBrew non risponde"); }, 6000);
+    function fine(errore) {
+      if (finito) { return; }
+      finito = true;
+      clearTimeout(timer);
+      try { ws.close(); } catch (e) {}
+      if (errore) { avviso("Non riesco ad aprire " + nome + ": " + errore); }
     }
-    avviso("Sulla TV qui si aprirebbe " + nome);
+    avviso("Apro " + nome + "…");
+    try { ws = new WebSocket("ws://127.0.0.1:8081"); } catch (e) { return fine("WebSocket non disponibile"); }
+    ws.onerror = function () { fine("collegamento a TizenBrew non riuscito"); };
+    ws.onopen = function () { chiesto++; ws.send(JSON.stringify({ type: 4, payload: false })); };
+    ws.onmessage = function (ev) {
+      var m;
+      try { m = JSON.parse(ev.data); } catch (e) { return; }
+      // Risposta di TizenBrew al lancio: per i moduli che iniettano il codice
+      // all'inizio della pagina bisogna aspettare questo via libera.
+      if (m.type === 5 && modulo) { clearTimeout(timer); location.href = modulo.appPath; return; }
+      if (m.type !== 4 || finito || modulo) { return; }
+      var lista = m.payload || [];
+      if (!lista.length && chiesto < 2) { chiesto++; ws.send(JSON.stringify({ type: 4, payload: true })); return; }
+      for (var i = 0; i < lista.length && !modulo; i++) {
+        var x = lista[i];
+        if (x && x.appPath && (re.test(x.fullName || "") || re.test(x.name || "") || re.test(x.appName || ""))) { modulo = x; }
+      }
+      if (!modulo) { return fine("modulo «" + cercato + "» non installato in TizenBrew"); }
+      ws.send(JSON.stringify({ type: 5, payload: modulo }));
+      if (!modulo.evaluateScriptOnDocumentStart) { clearTimeout(timer); location.href = modulo.appPath; }
+    };
   }
 
   /**

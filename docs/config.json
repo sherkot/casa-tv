@@ -1,19 +1,61 @@
 {
-  "citta": { "nome": "Reggio Emilia", "lat": 44.6983, "lon": 10.6312 },
+  "citta": {
+    "nome": "Reggio Emilia",
+    "lat": 44.6983,
+    "lon": 10.6312
+  },
   "widgets": [
-    { "tipo": "orologio", "area": "sinistra" },
-    { "tipo": "nota", "area": "sinistra", "titolo": "Promemoria", "testo": "Questa è la tua schermata Casa. Si cambia da config.json." },
-    { "tipo": "meteo", "area": "destra", "striscia": "giorni", "giorni": 6 },
     {
-      "tipo": "app", "area": "basso", "titolo": "Le mie app",
+      "tipo": "orologio",
+      "area": "sinistra"
+    },
+    {
+      "tipo": "nota",
+      "area": "sinistra",
+      "titolo": "Promemoria",
+      "testo": "Questa è la tua schermata Casa. Si cambia da config.json."
+    },
+    {
+      "tipo": "meteo",
+      "area": "destra",
+      "striscia": "giorni",
+      "giorni": 6
+    },
+    {
+      "tipo": "app",
+      "area": "basso",
+      "titolo": "Le mie app",
       "app": [
-        { "nome": "YouTube" },
-        { "nome": "Netflix" },
-        { "nome": "Prime Video" },
-        { "nome": "Disney+" },
-        { "nome": "RaiPlay" },
-        { "nome": "Mediaset Infinity" },
-        { "nome": "TizenBrew" }
+        {
+          "nome": "Disney+"
+        },
+        {
+          "nome": "Netflix"
+        },
+        {
+          "nome": "Prime Video"
+        },
+        {
+          "nome": "TizenTube",
+          "modulo": "tizentube"
+        },
+        {
+          "nome": "NOW",
+          "etichetta": "NOW TV",
+          "cerca": [
+            "NOW TV",
+            "NOWTV"
+          ]
+        },
+        {
+          "nome": "RaiPlay"
+        },
+        {
+          "nome": "Mediaset Infinity",
+          "cerca": [
+            "Infinity"
+          ]
+        }
       ]
     }
   ]
