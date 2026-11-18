@@ -822,13 +822,14 @@
    * Pannello di diagnosi del guardiano (temporaneo, per le prove): in basso a
    * sinistra mostra cosa ha fatto la schermata per avviarlo e il registro del
    * guardiano letto dalle porte 8187 e 8188. Si aggiorna ogni 5 secondi.
-   * Il tasto GIALLO lo nasconde o lo mostra.
+   * Parte nascosto: il tasto GIALLO lo mostra o lo nasconde.
    */
   function pannelloDiagnosi() {
     var el = document.createElement("div");
     el.id = "diagnosi";
     el.style.cssText = "position:fixed;left:24px;bottom:24px;width:900px;max-height:520px;overflow:hidden;" +
       "background:rgba(0,0,0,.82);color:#cfe3ff;font:18px/1.35 monospace;padding:14px 18px;border-radius:12px;z-index:50;white-space:pre-wrap";
+    el.style.display = "none";
     document.body.appendChild(el);
     pannelloDiagnosi.el = el;
     function leggi(porta, fatto) {
@@ -855,7 +856,7 @@
     function aggiorna() {
       leggi(8187, function (a) {
         leggi(8188, function (b) {
-          el.textContent = "DIAGNOSI GUARDIANO (tasto giallo: nascondi)\n" +
+          el.textContent = "DIAGNOSI GUARDIANO (tasto giallo: nascondi/mostra)\n" +
             (diagnosiApp.slice(-10).join("\n") || "-") + "\n" +
             "servizio TizenBrew: porta 8187 " + (a ? "v" + a.versione : "spenta") + ", porta 8188 " + (b ? "v" + b.versione : "spenta");
         });
