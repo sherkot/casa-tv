@@ -48,13 +48,17 @@
   }
 
   /**
-   * Accetta richieste solo da pagine servite in locale (TizenBrew su
-   * 127.0.0.1 o localhost). Le richieste senza Origin (per esempio le
-   * immagini) sono ammesse solo per le icone, che non cambiano nulla.
+   * Usata da /app e /apri: accetta la richiesta solo se ha un'intestazione
+   * Origin di una pagina servita in locale (TizenBrew su 127.0.0.1 o
+   * localhost). La pagina del modulo chiama il servizio su un'altra porta,
+   * quindi il browser invia sempre Origin. Le richieste senza Origin (per
+   * esempio un <img> in una pagina web qualsiasi aperta sulla TV) vengono
+   * rifiutate, così nessun sito può aprire app. /stato e /icona non passano
+   * da qui: restano accessibili anche senza Origin perché non cambiano nulla.
    */
   function origineAmmessa(req) {
     var o = req.headers.origin || "";
-    return o === "" || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(o);
+    return o !== "" && /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(o);
   }
 
   /**
