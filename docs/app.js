@@ -531,26 +531,177 @@
   }
 
   /**
-   * Dentro l'app Casa: chiede a TizenBrew di aprire direttamente un suo modulo
-   * (per esempio TizenTube), senza passare dalla home di TizenBrew. TizenBrew
-   * legge la richiesta all'avvio: il primo dato deve contenere un JSON con
-   * moduleName (es. "@foxreis/tizentube") e moduleType (es. "npm").
-   * In config.json: "moduloNome" e "moduloTipo" nella voce dell'app.
+   * Dentro l'app Casa: apre direttamente un modulo di TizenBrew (per esempio
+   * TizenTube), senza fermarsi sulla home di TizenBrew.
+   *
+   * Perché non basta "lanciare TizenBrew con un dato": TizenBrew legge quel dato
+   * solo quando parte da zero. Se è già aperto in sottofondo (succede spesso:
+   * resta aperto dopo averlo usato) la TV lo riporta davanti così com'era e il
+   * dato viene ignorato, quindi si finisce sulla home.
+   *
+   * Qui invece si parla direttamente con il servizio di TizenBrew, che resta
+   * attivo in sottofondo (WebSocket su 127.0.0.1:8081), e si usano gli stessi due
+   * messaggi che TizenBrew usa per sé a ogni avvio:
+   *   1. type 0 (AppControlData): "al prossimo avvio apri questo modulo";
+   *   2. type 3 (ReLaunchInDebug): il servizio riavvia TizenBrew in modalità debug
+   *      (quella che serve a TizenTube per togliere la pubblicità) e, appena è
+   *      ripartito, gli fa aprire il modulo indicato al punto 1.
+   *
+   * Se il servizio non è attivo (TizenBrew non è mai stato aperto da quando la TV
+   * è stata attaccata alla corrente) prova ad avviarlo e aspetta che risponda.
+   * Se non ci riesce, ripiega sul vecchio metodo (lancio di TizenBrew con il dato).
+   *
+   * In config.json: "moduloNome" (es. "@foxreis/tizentube") e "moduloTipo" (es. "npm").
    */
   function apriModuloDaApp(nome, voce) {
-    var dati = JSON.stringify({ moduleName: voce.moduloNome || "@foxreis/tizentube", moduleType: voce.moduloTipo || "npm" });
+    var moduloNome = voce.moduloNome || "@foxreis/tizentube";
+    var moduloTipo = voce.moduloTipo || "npm";
+    var finito = false;
     avviso("Apro " + nome + "…");
-    try {
-      var controllo = new tizen.ApplicationControl(
-        "http://tizen.org/appcontrol/operation/view", null, null, null,
-        [new tizen.ApplicationControlData("module", [dati])]
-      );
-      tizen.application.launchAppControl(controllo, ID_TIZENBREW, function () {}, function (e) {
-        avviso("Non riesco ad aprire " + nome + ": " + ((e && e.message) || "errore"));
-      });
-    } catch (e) {
-      avviso("Errore aprendo " + nome + ": " + e.message);
+
+    /** Vecchio metodo: lancia TizenBrew passandogli il modulo da aprire. Funziona solo se TizenBrew era chiuso. */
+    function ripiego(motivo) {
+      if (finito) { return; }
+      finito = true;
+      try { console.log("Casa: ripiego sul lancio diretto di TizenBrew (" + motivo + ")"); } catch (e) {}
+      try {
+        var dati = JSON.stringify({ moduleName: moduloNome, moduleType: moduloTipo });
+        var controllo = new tizen.ApplicationControl(
+          "http://tizen.org/appcontrol/operation/view", null, null, null,
+          [new tizen.ApplicationControlData("module", [dati])]
+        );
+        tizen.application.launchAppControl(controllo, ID_TIZENBREW, function () {}, function (e) {
+          avviso("Non riesco ad aprire " + nome + ": " + ((e && e.message) || "errore"));
+        });
+      } catch (e) {
+        avviso("Errore aprendo " + nome + ": " + e.message);
+      }
     }
+
+    /**
+     * Prova a collegarsi al servizio di TizenBrew. Chiama fatto(ws) se riesce,
+     * fatto(null) se il servizio non risponde entro il tempo indicato.
+     */
+    function collegati(attesaMs, fatto) {
+      var ws, chiuso = false;
+      var timer = setTimeout(function () { esito(null); }, attesaMs);
+      function esito(x) {
+        if (chiuso) { return; }
+        chiuso = true;
+        clearTimeout(timer);
+        if (!x) { try { ws.close(); } catch (e) {} }
+        fatto(x);
+      }
+      try { ws = new WebSocket("ws://127.0.0.1:8081"); } catch (e) { esito(null); return; }
+      ws.onopen = function () { esito(ws); };
+      ws.onerror = function () { esito(null); };
+    }
+
+    /**
+     * Prova più volte a collegarsi al servizio (serve quando è appena stato avviato):
+     * un tentativo ogni 1,5 secondi fino a "tentativi" volte.
+     */
+    function collegatiConPazienza(tentativi, fatto) {
+      collegati(1500, function (ws) {
+        if (ws || tentativi <= 1) { fatto(ws); return; }
+        setTimeout(function () { collegatiConPazienza(tentativi - 1, fatto); }, 1500);
+      });
+    }
+
+    /**
+     * Legge l'indirizzo IP della TV dall'interfaccia locale di Samsung (porta 8001):
+     * il servizio di TizenBrew ne ha bisogno per collegarsi al debugger.
+     */
+    function leggiIpTv(fatto) {
+      var x = new XMLHttpRequest(), dato = false;
+      function esito(ip) { if (dato) { return; } dato = true; fatto(ip); }
+      try {
+        x.open("GET", "http://127.0.0.1:8001/api/v2/", true);
+        x.timeout = 3000;
+        x.onload = function () {
+          var ip = "";
+          try { ip = JSON.parse(x.responseText).device.ip || ""; } catch (e) {}
+          esito(ip);
+        };
+        x.onerror = function () { esito(""); };
+        x.ontimeout = function () { esito(""); };
+        x.send();
+      } catch (e) { esito(""); }
+    }
+
+    /**
+     * Se TizenBrew è aperto in sottofondo prova a chiuderlo, così il riavvio in
+     * debug parte pulito. Se la TV non lo permette, si va avanti lo stesso.
+     */
+    function chiudiTizenBrewSeAperto(fatto) {
+      try {
+        tizen.application.getAppsContext(function (contesti) {
+          var c = null;
+          (contesti || []).forEach(function (x) { if (x.appId === ID_TIZENBREW) { c = x; } });
+          if (!c) { fatto(); return; }
+          try {
+            tizen.application.kill(c.id, function () { setTimeout(fatto, 800); }, function () { fatto(); });
+          } catch (e) { fatto(); }
+        }, function () { fatto(); });
+      } catch (e) { fatto(); }
+    }
+
+    /**
+     * Collegati al servizio: manda i due messaggi (modulo da aprire + riavvio in
+     * debug) e chiude il collegamento. "appenaAvviato" indica che il servizio è
+     * partito ora e deve ancora finire di caricare l'elenco dei moduli.
+     */
+    function usaServizio(ws, appenaAvviato) {
+      var timerRisposta = null, tentativiModulo = 0;
+      ws.onmessage = function (ev) {
+        var m;
+        try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.type === 0) {
+          // Il servizio ha preso nota del modulo: ora riavvia TizenBrew in debug.
+          clearTimeout(timerRisposta);
+          finito = true;
+          chiudiTizenBrewSeAperto(function () {
+            leggiIpTv(function (ip) {
+              try { ws.send(JSON.stringify({ type: 3, payload: { tvIP: ip || "127.0.0.1" } })); } catch (e) {}
+              // Chiude il collegamento dopo un attimo: TizenBrew, ripartendo, apre il suo.
+              setTimeout(function () { try { ws.close(); } catch (e) {} }, 500);
+            });
+          });
+        } else if (m.type === 8) {
+          // Errore (di solito: elenco dei moduli non ancora pronto). Riprova qualche volta.
+          clearTimeout(timerRisposta);
+          if (tentativiModulo < 4) { setTimeout(chiediModulo, 2000); }
+          else { try { ws.close(); } catch (e) {} ripiego("il servizio non trova il modulo"); }
+        }
+      };
+      ws.onerror = function () { ripiego("collegamento al servizio interrotto"); };
+      function chiediModulo() {
+        tentativiModulo++;
+        try {
+          ws.send(JSON.stringify({ type: 0, payload: { package: moduloTipo + "/" + moduloNome } }));
+        } catch (e) { ripiego("invio non riuscito"); return; }
+        timerRisposta = setTimeout(function () {
+          try { ws.close(); } catch (e) {}
+          ripiego("il servizio non risponde");
+        }, 5000);
+      }
+      // Appena avviato, il servizio scarica l'elenco dei moduli: gli si lascia il tempo.
+      setTimeout(chiediModulo, appenaAvviato ? 6000 : 0);
+    }
+
+    collegati(1500, function (ws) {
+      if (ws) { usaServizio(ws, false); return; }
+      // Servizio spento: prova ad avviarlo (come fa TizenBrew all'avvio) e aspetta che risponda.
+      try {
+        tizen.application.launchAppControl(
+          new tizen.ApplicationControl("http://tizen.org/appcontrol/operation/service"),
+          "xvvl3S1bvH.StandaloneService", function () {}, function () {}
+        );
+      } catch (e) {}
+      collegatiConPazienza(6, function (ws2) {
+        if (ws2) { usaServizio(ws2, true); } else { ripiego("servizio di TizenBrew non attivo"); }
+      });
+    });
   }
 
   /**
