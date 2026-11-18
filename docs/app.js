@@ -537,11 +537,18 @@
         if (x && x.appPath && (re.test(x.fullName || "") || re.test(x.name || "") || re.test(x.appName || ""))) { modulo = x; }
       }
       if (!modulo) { return fine("modulo «" + cercato + "» non installato in TizenBrew"); }
-      ws.send(JSON.stringify({ type: 5, payload: modulo }));
-      // Il modulo prende la finestra di TizenBrew: chiede al servizio di
-      // riaprire TizenBrew (e quindi Casa) quando il modulo verrà chiuso.
-      chiediServizio("/osserva?self=1", 3000).catch(function () {});
-      if (!modulo.evaluateScriptOnDocumentStart) { clearTimeout(timer); location.href = modulo.appPath; }
+      // Il modulo prenderà la finestra di TizenBrew. Prima di lasciare la pagina
+      // chiede al servizio di riaprire TizenBrew (e quindi Casa) quando il modulo
+      // verrà chiuso, e ASPETTA la risposta: cambiando pagina subito, la richiesta
+      // verrebbe interrotta e il ritorno a Casa non scatterebbe.
+      var lanciato = false;
+      function lancia() {
+        if (lanciato) { return; }
+        lanciato = true;
+        ws.send(JSON.stringify({ type: 5, payload: modulo }));
+        if (!modulo.evaluateScriptOnDocumentStart) { clearTimeout(timer); location.href = modulo.appPath; }
+      }
+      chiediServizio("/osserva?self=1", 2000).then(lancia, lancia);
     };
   }
 
