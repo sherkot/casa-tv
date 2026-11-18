@@ -39,7 +39,10 @@
   var iconeTrovate = {};   // id app → percorso dell'icona scelta ("" se nessuna)
   var CARTELLE_APP = ["/opt/usr/globalapps/", "/usr/apps/", "/opt/usr/apps/", "/opt/usr/home/owner/apps_rw/"];
   // Cartelle condivise in cui alcune app di sistema (es. Netflix) tengono le icone.
-  var CARTELLE_CONDIVISE = ["/opt/share", "/opt/usr/share", "/usr/share", "/opt/usr/home/owner/share",
+  // Esclusa di proposito la cartella "share" nella home dell'utente, che può
+  // contenere file personali: /icona è raggiungibile senza Origin e non deve
+  // poterli servire.
+  var CARTELLE_CONDIVISE = ["/opt/share", "/opt/usr/share", "/usr/share",
                             "/opt/usr/globalapps", "/usr/apps", "/opt/usr/apps", "/opt/usr/home/owner/apps_rw"];
   var dimensioniGeneriche = {};  // dimensione in byte → true se è quella dell'icona generica
 
