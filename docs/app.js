@@ -764,7 +764,7 @@
     var d = new Date();
     function due(n) { return (n < 10 ? "0" : "") + n; }
     diagnosiApp.push(due(d.getHours()) + ":" + due(d.getMinutes()) + ":" + due(d.getSeconds()) + " " + testo);
-    if (diagnosiApp.length > 12) { diagnosiApp.shift(); }
+    if (diagnosiApp.length > 30) { diagnosiApp.shift(); }
   }
 
   function assicuraGuardiano(tentativo) {
@@ -856,8 +856,8 @@
       leggi(8187, function (a) {
         leggi(8188, function (b) {
           el.textContent = "DIAGNOSI GUARDIANO (tasto giallo: nascondi)\n" +
-            "schermata: " + (diagnosiApp.slice(-4).join(" | ") || "-") + "\n" +
-            riga(8187, a) + "\n" + riga(8188, b);
+            (diagnosiApp.slice(-10).join("\n") || "-") + "\n" +
+            "servizio TizenBrew: porta 8187 " + (a ? "v" + a.versione : "spenta") + ", porta 8188 " + (b ? "v" + b.versione : "spenta");
         });
       });
     }
@@ -865,8 +865,95 @@
     setInterval(aggiorna, 5000);
   }
 
+  /**
+   * Guardiano dell'accensione DENTRO l'app Casa (dalla versione 1.1.0 dell'app,
+   * che ha background-support="enable": la TV non ferma questo codice quando
+   * Casa va in sottofondo, per esempio mentre guardi Netflix).
+   *
+   * Ogni 2 secondi controlla due segnali:
+   *   1. il timer si è fermato per più di 15 secondi: in standby la TV congela
+   *      tutto, quindi un "buco" vuol dire che si è appena riaccesa;
+   *   2. la TV dice "PowerState: standby" e poi "on" (API locale, porta 8001).
+   * Se Casa in quel momento è in sottofondo, la riporta davanti, riprovando per
+   * circa 20 secondi finché non è davvero a schermo (la TV può rimettere davanti
+   * l'ultima app usata). Se la TV dice ancora "standby", aspetta che diventi "on".
+   *
+   * Tutto quello che fa finisce nel pannello di diagnosi (tasto giallo).
+   */
+  function guardianoInterno() {
+    var ID_CASA = "CasaTVmrco.Casa";
+    var ultimo = Date.now(), rientro = false, stato = null, ultimoLetto, inCorso = false;
+    var ultimaApertura = 0, sottofondoVisto = false;
+
+    /** Legge PowerState dall'API locale della TV: "on", "standby" o null. */
+    function leggiAccensione(fatto) {
+      var x = new XMLHttpRequest(), dato = false;
+      function esito(v) { if (!dato) { dato = true; fatto(v); } }
+      try {
+        x.open("GET", "http://127.0.0.1:8001/api/v2/", true);
+        x.timeout = 1500;
+        x.onload = function () {
+          var v = null;
+          try { v = JSON.parse(x.responseText).device.PowerState || null; } catch (e) {}
+          esito(v === "on" || v === "standby" ? v : null);
+        };
+        x.onerror = function () { esito(null); };
+        x.ontimeout = function () { esito(null); };
+        x.send();
+      } catch (e) { esito(null); }
+    }
+
+    /** Riporta Casa davanti, riprovando finché non è a schermo (massimo ~20 s). */
+    function riportaCasa() {
+      if (Date.now() - ultimaApertura < 30000) { return; }
+      ultimaApertura = Date.now();
+      annotaApp("riaccensione: riporto Casa davanti");
+      [0, 2500, 5000, 9000, 14000, 20000].forEach(function (ms, i) {
+        setTimeout(function () {
+          if (!document.hidden) { if (i > 0) { annotaApp("Casa a schermo (tentativo " + i + ")"); } ultimaApertura = Date.now(); return; }
+          try {
+            tizen.application.launch(ID_CASA, function () {}, function (e) {
+              annotaApp("apertura fallita: " + ((e && e.message) || "errore"));
+            });
+          } catch (e) { annotaApp("apertura errore: " + e.message); }
+        }, ms);
+      });
+    }
+
+    document.addEventListener("visibilitychange", function () {
+      annotaApp(document.hidden ? "Casa in sottofondo" : "Casa a schermo");
+    });
+
+    setInterval(function () {
+      var ora = Date.now();
+      if (ora - ultimo > 15000) {
+        rientro = true;
+        annotaApp("risveglio dopo " + Math.round((ora - ultimo) / 1000) + " s di pausa");
+      }
+      ultimo = ora;
+      if (document.hidden && !sottofondoVisto) {
+        sottofondoVisto = true;
+        annotaApp("il codice gira anche in sottofondo: ok");
+      }
+      if (inCorso) { return; }
+      inCorso = true;
+      leggiAccensione(function (s) {
+        inCorso = false;
+        if (s !== ultimoLetto) { annotaApp("PowerState: " + (s === null ? "non disponibile" : s)); ultimoLetto = s; }
+        var prima = stato;
+        if (s) { stato = s; }
+        if (s === "standby") { return; }
+        if ((s === "on" && prima === "standby") || rientro) {
+          rientro = false;
+          if (document.hidden) { riportaCasa(); } else { annotaApp("riaccesa con Casa già a schermo"); }
+        }
+      });
+    }, 2000);
+    annotaApp("guardiano interno avviato");
+  }
+
   function avvia() {
-    if (DIRETTA) { setTimeout(assicuraGuardiano, 3000); pannelloDiagnosi(); }
+    if (DIRETTA) { guardianoInterno(); pannelloDiagnosi(); }
     // Casa è di nuovo a schermo: il servizio può smettere di osservare l'app di prima.
     if (SULLA_TV && !DIRETTA) { chiediServizio("/osserva?stop=1", 3000).catch(function () {}); }
     scaricaJson(BASE + "config.json").then(function (config) {
