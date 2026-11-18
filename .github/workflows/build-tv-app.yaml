@@ -93,7 +93,9 @@ jobs:
           sed -i 's/^          //' package.exp
           expect ./package.exp
           ls -la release
-          mv release/*.wgt release/Casa.wgt
+          # La CLI può chiamare il pacchetto già Casa.wgt: rinomina solo se serve.
+          for f in release/*.wgt; do [ "$f" = "release/Casa.wgt" ] || mv "$f" release/Casa.wgt; done
+          test -f release/Casa.wgt
           cat "${GITHUB_WORKSPACE}/tizen-studio-data/cli/logs/cli.log" 2>/dev/null | tail -20 || true
 
       - name: Pubblica la release
